@@ -17,10 +17,11 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
 
   useEffect(() => {
     const load = () => {
+      if (isEditing) return; // Do not overwrite while user is editing
       const p = getPlaylists().find(p => p.id === playlistId);
       if (p) {
         setPlaylist(p);
-        if (!newName) setNewName(p.name);
+        setNewName(p.name);
       } else {
         setPlaylist(null);
       }
@@ -28,7 +29,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
     load();
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
-  }, [playlistId]);
+  }, [playlistId, isEditing]);
 
   if (!playlist) {
     return <div className="px-6 py-20 text-center text-zinc-400">Playlist not found</div>;
