@@ -59,29 +59,13 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
   if (!query.trim()) return [];
   const results: Song[] = [];
 
-  // 1. Search iTunes catalog (provides virtually all global songs worldwide)
-  try {
-    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=25`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.results)) {
-        const iTunesSongs = data.results
-          .filter((r: any) => r.previewUrl)
-          .map(formatITunesSong);
-        results.push(...iTunesSongs);
-      }
-    }
-  } catch (e) {
-    console.warn("iTunes Search error:", e);
-  }
-
-  // 2. Search Audius catalog as supplementary source
+  // 1. Primary Source: Search Audius decentralized catalog for full-length 320kbps streams
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
       const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
       if (!res.ok) continue;
       const data = await res.json();
-      if (data && Array.isArray(data.data)) {
+      if (data && Array.isArray(data.data) && data.data.length > 0) {
         const audiusSongs = data.data
           .filter((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id)
           .map(formatAudiusSong);
@@ -93,7 +77,41 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  return results;
+  // 2. Search iTunes catalog for metadata & resolve full-length Audius stream matching
+  try {
+    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=20`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.results)) {
+        const iTunesSongs = data.results.map((r: any) => {
+          const song = formatITunesSong(r);
+          // Check if we already have a full Audius stream for this track title
+          const matchingAudius = results.find(s =>
+            s.title.toLowerCase().includes(song.title.toLowerCase()) ||
+            song.title.toLowerCase().includes(s.title.toLowerCase())
+          );
+          if (matchingAudius) {
+            song.audioUrl = matchingAudius.audioUrl;
+            song.streamMirrors = matchingAudius.streamMirrors;
+            song.duration = matchingAudius.duration;
+          }
+          return song;
+        });
+        results.push(...iTunesSongs);
+      }
+    }
+  } catch (e) {
+    console.warn("iTunes Search error:", e);
+  }
+
+  // Deduplicate results by ID or title+artist
+  const seen = new Set<string>();
+  return results.filter(s => {
+    const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 export const getSavedSongs = (): Song[] => {
