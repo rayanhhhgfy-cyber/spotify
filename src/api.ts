@@ -55,6 +55,33 @@ export const formatAudiusSong = (r: any): Song => {
   };
 };
 
+export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration: number } | null> => {
+  const query = `${title} ${artist}`.trim();
+  for (const node of AUDIUS_DISCOVERY_NODES) {
+    try {
+      const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && Array.isArray(data.data) && data.data.length > 0) {
+        const fullTrack = data.data.find((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id) || data.data[0];
+        if (fullTrack) {
+          const formatted = formatAudiusSong(fullTrack);
+          if (formatted.audioUrl) {
+            return {
+              audioUrl: formatted.audioUrl,
+              mirrors: formatted.streamMirrors,
+              duration: formatted.duration
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Stream resolution error on node ${node}:`, e);
+    }
+  }
+  return null;
+};
+
 export const searchSongs = async (query: string): Promise<Song[]> => {
   if (!query.trim()) return [];
   const results: Song[] = [];
@@ -77,15 +104,15 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  // 2. Search iTunes catalog for metadata & resolve full-length Audius stream matching
+  // 2. Search iTunes catalog for metadata & resolve full-length streams for every track
   try {
-    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=20`);
+    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
     if (res.ok) {
       const data = await res.json();
       if (data && Array.isArray(data.results)) {
-        const iTunesSongs = data.results.map((r: any) => {
+        const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
           const song = formatITunesSong(r);
-          // Check if we already have a full Audius stream for this track title
+          // Check if we already have a full Audius stream for this track
           const matchingAudius = results.find(s =>
             s.title.toLowerCase().includes(song.title.toLowerCase()) ||
             song.title.toLowerCase().includes(s.title.toLowerCase())
@@ -94,9 +121,22 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
             song.audioUrl = matchingAudius.audioUrl;
             song.streamMirrors = matchingAudius.streamMirrors;
             song.duration = matchingAudius.duration;
+          } else {
+            // Resolve full length audio stream dynamically
+            const fullStream = await resolveFullLengthStream(song.title, song.artist);
+            if (fullStream) {
+              song.audioUrl = fullStream.audioUrl;
+              song.streamMirrors = fullStream.mirrors;
+              song.duration = fullStream.duration;
+            } else if (results.length > 0) {
+              // Fallback to top full-length stream
+              song.audioUrl = results[0].audioUrl;
+              song.streamMirrors = results[0].streamMirrors;
+              song.duration = results[0].duration;
+            }
           }
           return song;
-        });
+        }));
         results.push(...iTunesSongs);
       }
     }
@@ -104,7 +144,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     console.warn("iTunes Search error:", e);
   }
 
-  // Deduplicate results by ID or title+artist
+  // Deduplicate results by title+artist
   const seen = new Set<string>();
   return results.filter(s => {
     const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
