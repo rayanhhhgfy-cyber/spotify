@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Heart, ListPlus, Clock } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { isSongSaved, toggleSaveSong } from '../api';
+import { motion } from 'motion/react';
 
 interface ExpandedPlayerProps {
   onClose: () => void;
@@ -105,14 +106,23 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
   if (!currentSong) return null;
 
   return (
-    <div 
-      className="fixed inset-0 z-[100] bg-zinc-900 overflow-y-auto pb-8 flex flex-col pt-4 animate-in slide-in-from-bottom-full duration-300"
+    <motion.div
+      initial={{ y: "100%" }}
+      animate={{ y: 0 }}
+      exit={{ y: "100%" }}
+      transition={{ type: "spring", damping: 25, stiffness: 200 }}
+      className="fixed inset-0 z-[100] bg-zinc-900 overflow-y-auto pb-8 flex flex-col pt-4"
     >
       {/* Top Header */}
       <div className="flex items-center justify-between px-6 mb-8">
-        <button onClick={onClose} className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors">
+        <motion.button
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={onClose}
+          className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors"
+        >
           <ChevronDown size={28} />
-        </button>
+        </motion.button>
         <div className="text-center">
           <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Now Playing</p>
           <p className="text-sm font-bold text-white truncate max-w-[200px]">{currentSong.album}</p>
@@ -143,13 +153,17 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
       {/* Main Content */}
       <div className="px-6 flex flex-col flex-1 max-w-md mx-auto w-full">
         {/* Cover Art */}
-        <div className="w-full aspect-square mb-8 shadow-2xl rounded-xl overflow-hidden">
+        <motion.div
+          animate={{ scale: isPlaying ? 1 : 0.95 }}
+          transition={{ duration: 0.3 }}
+          className="w-full aspect-square mb-8 shadow-2xl rounded-xl overflow-hidden"
+        >
           <img 
             src={currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg'} 
             alt={currentSong.title} 
             className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
           />
-        </div>
+        </motion.div>
 
         {/* Title and Actions */}
         <div className="flex items-center justify-between mb-6">
@@ -193,24 +207,26 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
 
         {/* Playback Controls */}
         <div className="flex items-center justify-between mb-8">
-          <button onClick={toggleShuffle} className={`p-2 transition-colors ${isShuffle ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
+          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={toggleShuffle} className={`p-2 transition-colors ${isShuffle ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
             <Shuffle size={24} />
-          </button>
-          <button onClick={prevSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={prevSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
             <SkipBack size={32} className="fill-current" />
-          </button>
-          <button 
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
             onClick={togglePlay} 
-            className="w-16 h-16 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 transition-transform"
+            className="w-16 h-16 flex items-center justify-center bg-white text-black rounded-full shadow-xl transition-transform"
           >
-            {isPlaying ? <Pause size={32} className="fill-current" /> : <Play size={32} className="fill-current ml-2" />}
-          </button>
-          <button onClick={nextSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
+            {isPlaying ? <Pause size={32} className="fill-current" /> : <Play size={32} className="fill-current ml-1" />}
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={nextSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
             <SkipForward size={32} className="fill-current" />
-          </button>
-          <button onClick={toggleRepeat} className={`p-2 transition-colors ${repeatMode !== 'off' ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
+          </motion.button>
+          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={toggleRepeat} className={`p-2 transition-colors ${repeatMode !== 'off' ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
             {repeatMode === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
-          </button>
+          </motion.button>
         </div>
 
         {/* Lyrics Section */}
@@ -245,6 +261,6 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };

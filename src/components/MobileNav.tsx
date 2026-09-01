@@ -1,5 +1,5 @@
-import React from 'react';
-import { Home, Search, Library, Compass } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Home, Search, Library, Compass, Download } from 'lucide-react';
 
 interface MobileNavProps {
   currentView: string;
@@ -7,6 +7,28 @@ interface MobileNavProps {
 }
 
 export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange }) => {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      setDeferredPrompt(null);
+    } else {
+      alert("To download/install as a PWA, tap your browser's share/menu button and select 'Add to Home Screen' or 'Install App'.");
+    }
+  };
+
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'search', label: 'Search', icon: Search },
@@ -27,11 +49,20 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
               isActive ? 'text-white' : 'text-zinc-400'
             }`}
           >
-            <Icon size={24} />
+            <Icon size={22} />
             <span className="text-[10px] font-medium">{item.label}</span>
           </button>
         );
       })}
+
+      <button
+        onClick={handleInstallPWA}
+        className="flex flex-col items-center justify-center space-y-1 w-full h-full text-green-500 hover:text-green-400 transition-colors"
+        title="Download PWA"
+      >
+        <Download size={22} />
+        <span className="text-[10px] font-bold">PWA</span>
+      </button>
     </div>
   );
 };

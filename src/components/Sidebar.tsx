@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Home, Search, Library, Plus, Compass } from 'lucide-react';
+import { Home, Search, Library, Plus, Compass, Download } from 'lucide-react';
 import { getPlaylists, createPlaylist } from '../api';
 import { Playlist } from '../types';
+import { motion } from 'motion/react';
 
 interface SidebarProps {
   currentView: string;
@@ -10,6 +11,8 @@ interface SidebarProps {
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) => {
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(false);
 
   useEffect(() => {
     const load = () => setPlaylists(getPlaylists());
@@ -17,6 +20,39 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     const interval = setInterval(load, 2000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
+      }
+      setDeferredPrompt(null);
+    } else {
+      alert("To install as a PWA app, open your browser menu and choose 'Add to Home screen' or 'Install App'.");
+    }
+  };
 
   const navItems = [
     { id: 'home', label: 'Home', icon: Home },
@@ -84,6 +120,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
               </p>
             ))}
         </div>
+      </div>
+
+      {/* PWA Download Button at Very Bottom */}
+      <div className="pt-4 border-t border-zinc-800">
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={handleInstallPWA}
+          className="flex items-center space-x-3 w-full px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-xs font-bold transition-all shadow-md border border-zinc-700/80 group"
+        >
+          <div className="w-7 h-7 rounded-lg bg-green-500/20 text-green-400 flex items-center justify-center group-hover:bg-green-500 group-hover:text-black transition-colors">
+            <Download size={16} />
+          </div>
+          <div className="text-left flex-1 min-w-0">
+            <p className="font-bold truncate text-white">Download PWA App</p>
+            <p className="text-[10px] text-zinc-400 truncate">Listen offline anytime</p>
+          </div>
+        </motion.button>
       </div>
     </div>
   );

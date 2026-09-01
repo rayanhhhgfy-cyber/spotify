@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { getPlaylists, deletePlaylist, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs } from '../api';
 import { Playlist, Song } from '../types';
-import { Music, Trash2, Edit2, GripVertical, Play } from 'lucide-react';
+import { Music, Trash2, Edit2, GripVertical, Play, Shuffle } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 interface PlaylistViewProps {
@@ -12,7 +12,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [newName, setNewName] = useState('');
-  const { playSong } = usePlayer();
+  const { playSong, shufflePlay } = usePlayer();
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
   useEffect(() => {
@@ -107,6 +107,26 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
             <span>•</span>
             <span>{playlist.songs.length} songs</span>
           </p>
+
+          {playlist.songs.length > 0 && (
+            <div className="flex items-center justify-center md:justify-start space-x-4 mt-6">
+              <button
+                onClick={() => playSong(playlist.songs[0], playlist.songs)}
+                className="w-14 h-14 rounded-full bg-green-500 text-black flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+                title="Play playlist"
+              >
+                <Play size={26} className="fill-current ml-1" />
+              </button>
+              <button
+                onClick={() => shufflePlay(playlist.songs)}
+                className="flex items-center space-x-2 px-6 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700"
+                title="Shuffle playlist"
+              >
+                <Shuffle size={20} className="text-green-500" />
+                <span>Shuffle</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
