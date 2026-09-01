@@ -1,0 +1,6 @@
+{
+  "name": "Spotify Clone",
+  "description": "A PWA music player with integrated search and offline capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
