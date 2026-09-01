@@ -4,6 +4,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { isSongSaved, toggleSaveSong } from '../api';
 import { ExpandedPlayer } from './ExpandedPlayer';
 import { PlaylistModal } from './PlaylistModal';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface PlayerBarProps {
   currentView?: string;
@@ -40,45 +41,86 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
   if (!currentSong) return null;
 
   return (
-    <div className="fixed bottom-16 md:bottom-0 left-0 right-0 h-16 md:h-24 bg-zinc-900 md:bg-[#181818] border-t border-zinc-800 md:border-t-0 flex items-center justify-between px-4 z-[60]">
+    <motion.div
+      initial={{ y: 50, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="fixed bottom-16 md:bottom-0 left-0 right-0 h-16 md:h-24 bg-zinc-900 md:bg-[#181818] border-t border-zinc-800 md:border-t-0 flex items-center justify-between px-4 z-[60]"
+    >
       {/* Left: Song Info */}
       <div 
         className="flex items-center w-[30%] min-w-[120px] cursor-pointer hover:bg-zinc-800/50 p-2 -ml-2 rounded-lg transition-colors"
         onClick={() => setIsExpanded(true)}
       >
-        <img src={currentSong.coverUrl} alt={currentSong.title} className="h-10 w-10 md:h-14 md:w-14 rounded-md shadow-lg" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} />
+        <motion.img
+          key={currentSong.id}
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.2 }}
+          src={currentSong.coverUrl}
+          alt={currentSong.title}
+          className="h-10 w-10 md:h-14 md:w-14 rounded-md shadow-lg object-cover"
+          onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
+        />
         <div className="ml-3 md:ml-4 overflow-hidden">
           <div className="flex items-center space-x-2">
             <p className="text-white text-sm font-medium truncate">{currentSong.title}</p>
           </div>
           <p className="text-zinc-400 text-xs truncate">{currentSong.artist}</p>
         </div>
-        <button onClick={(e) => { e.stopPropagation(); handleSave(); }} className="ml-4 hidden md:block text-zinc-400 hover:text-white transition-colors">
+        <motion.button
+          whileHover={{ scale: 1.15 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={(e) => { e.stopPropagation(); handleSave(); }}
+          className="ml-4 hidden md:block text-zinc-400 hover:text-white transition-colors"
+        >
           <Heart size={20} className={isSaved ? "fill-green-500 text-green-500" : ""} />
-        </button>
+        </motion.button>
       </div>
 
       {/* Center: Controls */}
       <div className="flex flex-col items-center max-w-[40%] flex-1">
         <div className="flex items-center space-x-4 md:space-x-6">
-          <button onClick={toggleShuffle} className={`transition-colors hidden md:block ${isShuffle ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}>
-            <Shuffle size={18} />
-          </button>
-          <button onClick={prevSong} className="text-zinc-400 hover:text-white transition-colors hidden md:block">
-            <SkipBack size={20} className="fill-current" />
-          </button>
-          <button 
-            onClick={togglePlay} 
-            className="w-10 h-10 md:w-8 md:h-8 flex items-center justify-center bg-white text-black rounded-full hover:scale-105 transition-transform"
+          <motion.button
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={toggleShuffle}
+            className={`transition-colors hidden md:block ${isShuffle ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
           >
-            {isPlaying ? <Pause size={20} className="fill-current" /> : <Play size={20} className="fill-current ml-1" />}
-          </button>
-          <button onClick={nextSong} className="text-zinc-400 hover:text-white transition-colors hidden md:block">
+            <Shuffle size={18} />
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={prevSong}
+            className="text-zinc-400 hover:text-white transition-colors hidden md:block"
+          >
+            <SkipBack size={20} className="fill-current" />
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={togglePlay} 
+            className="w-10 h-10 md:w-10 md:h-10 flex items-center justify-center bg-white text-black rounded-full shadow-lg transition-transform"
+          >
+            {isPlaying ? <Pause size={20} className="fill-current" /> : <Play size={20} className="fill-current ml-0.5" />}
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={nextSong}
+            className="text-zinc-400 hover:text-white transition-colors hidden md:block"
+          >
             <SkipForward size={20} className="fill-current" />
-          </button>
-          <button onClick={toggleRepeat} className={`transition-colors hidden md:block ${repeatMode !== 'off' ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}>
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+            onClick={toggleRepeat}
+            className={`transition-colors hidden md:block ${repeatMode !== 'off' ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
+          >
             {repeatMode === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
-          </button>
+          </motion.button>
         </div>
         
         {/* Progress Bar (Desktop only) */}
@@ -143,16 +185,18 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
          />
       </div>
 
-      {isExpanded && (
-        <ExpandedPlayer 
-          onClose={() => setIsExpanded(false)} 
-          onOpenPlaylistModal={(e) => { e.stopPropagation(); setShowPlaylistModal(true); }} 
-        />
-      )}
+      <AnimatePresence>
+        {isExpanded && (
+          <ExpandedPlayer
+            onClose={() => setIsExpanded(false)}
+            onOpenPlaylistModal={(e) => { e.stopPropagation(); setShowPlaylistModal(true); }}
+          />
+        )}
+      </AnimatePresence>
       
       {showPlaylistModal && currentSong && (
         <PlaylistModal song={currentSong} onClose={() => setShowPlaylistModal(false)} />
       )}
-    </div>
+    </motion.div>
   );
 };

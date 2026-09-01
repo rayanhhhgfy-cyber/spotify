@@ -12,6 +12,7 @@ interface PlayerContextType {
   isShuffle: boolean;
   repeatMode: 'off' | 'all' | 'one';
   playSong: (song: Song, newQueue?: Song[]) => void;
+  shufflePlay: (songs: Song[]) => void;
   togglePlay: () => void;
   nextSong: () => void;
   prevSong: () => void;
@@ -140,6 +141,27 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     
     if (audioRef.current) {
       const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : [song.audioUrl];
+      audioRef.current.src = candidates[0];
+      audioRef.current.load();
+      safePlay();
+    }
+  };
+
+  const shufflePlay = (songs: Song[]) => {
+    if (!songs || songs.length === 0) return;
+    const shuffled = [...songs].sort(() => Math.random() - 0.5);
+    setIsShuffle(true);
+    setQueue(shuffled);
+
+    const firstSong = shuffled[0];
+    recordPlay(firstSong);
+    setCurrentSong(firstSong);
+    currentSongRef.current = firstSong;
+    currentMirrorIndexRef.current = 0;
+    setIsPlaying(true);
+
+    if (audioRef.current) {
+      const candidates = firstSong.streamMirrors && firstSong.streamMirrors.length > 0 ? firstSong.streamMirrors : [firstSong.audioUrl];
       audioRef.current.src = candidates[0];
       audioRef.current.load();
       safePlay();
@@ -290,6 +312,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         isShuffle,
         repeatMode,
         playSong,
+        shufflePlay,
         togglePlay,
         nextSong,
         prevSong,

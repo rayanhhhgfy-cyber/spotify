@@ -4,11 +4,27 @@ import { usePlayer } from '../context/PlayerContext';
 import { Play, Download, ListPlus, Check } from 'lucide-react';
 import { downloadSong } from '../api';
 import { PlaylistModal } from './PlaylistModal';
+import { motion } from 'motion/react';
 
 interface TrackListProps {
   songs: Song[];
   showHeader?: boolean;
 }
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.03
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0 }
+};
 
 export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }) => {
   const { currentSong, isPlaying, playSong } = usePlayer();
@@ -54,14 +70,22 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
           <div className="text-right">Time</div>
         </div>
       )}
-      <div className="flex flex-col">
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="flex flex-col"
+      >
         {songs.map((song, index) => {
           const isCurrent = currentSong?.id === song.id;
           return (
-            <div
+            <motion.div
               key={`${song.id}-${index}`}
+              variants={itemVariants}
+              whileHover={{ scale: 1.008 }}
+              whileTap={{ scale: 0.995 }}
               onClick={() => playSong(song, songs)}
-              className={`group flex items-center p-2 px-4 rounded-md cursor-pointer transition-colors ${
+              className={`group flex items-center p-2 px-4 rounded-md cursor-pointer transition-colors select-none ${
                 isCurrent ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'
               }`}
             >
@@ -83,7 +107,7 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
 
               {/* Title & Artist */}
               <div className="flex-1 flex items-center min-w-0 pr-4">
-                <img src={song.coverUrl} alt={song.title} className="w-10 h-10 md:w-12 md:h-12 rounded bg-zinc-800 flex-shrink-0" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} />
+                <img src={song.coverUrl} alt={song.title} className="w-10 h-10 md:w-12 md:h-12 rounded bg-zinc-800 flex-shrink-0 object-cover shadow-sm" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} />
                 <div className="ml-4 truncate">
                   <p className={`text-base font-medium truncate ${isCurrent ? 'text-green-500' : 'text-white'}`}>
                     {song.title}
@@ -99,7 +123,9 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
 
               {/* Actions & Duration */}
               <div className="w-32 flex-shrink-0 flex justify-end items-center space-x-4 pr-4">
-                <button 
+                <motion.button
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={(e) => handleDownload(e, song)}
                   className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white"
                   title="Download for Offline"
@@ -111,22 +137,24 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
                   ) : (
                     <Download size={18} />
                   )}
-                </button>
-                <button 
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.15 }}
+                  whileTap={{ scale: 0.9 }}
                   onClick={(e) => handleOpenModal(e, song)}
                   className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white"
                   title="Add to Playlist"
                 >
                   <ListPlus size={18} />
-                </button>
+                </motion.button>
                 <div className="flex flex-col items-end">
                   <span className="text-sm text-zinc-400 min-w-[40px] text-right">{formatDuration(song.duration)}</span>
                 </div>
               </div>
-            </div>
+            </motion.div>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 };
