@@ -129,7 +129,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
               song.streamMirrors = fullStream.mirrors;
               song.duration = fullStream.duration;
             } else if (results.length > 0) {
-              // Fallback to top full-length stream
+              // Fallback to available full-length stream
               song.audioUrl = results[0].audioUrl;
               song.streamMirrors = results[0].streamMirrors;
               song.duration = results[0].duration;
@@ -144,14 +144,19 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     console.warn("iTunes Search error:", e);
   }
 
+  // Filter out any isolated 30-second preview links so only full-length streams are served
+  const fullLengthSongs = results.filter(s => !s.audioUrl.includes('apple.com') && !s.audioUrl.includes('mzstatic'));
+
   // Deduplicate results by title+artist
   const seen = new Set<string>();
-  return results.filter(s => {
+  const finalResults = (fullLengthSongs.length > 0 ? fullLengthSongs : results).filter(s => {
     const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
+
+  return finalResults;
 };
 
 export const getSavedSongs = (): Song[] => {
