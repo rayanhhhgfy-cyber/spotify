@@ -117,7 +117,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  // 2. Search iTunes catalog for metadata & attach guaranteed full-length streams
+  // 2. Search iTunes catalog for metadata & attach matching streams
   try {
     const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
     if (res.ok) {
@@ -126,29 +126,22 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
         const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
           const song = formatITunesSong(r);
 
-          // Check if we already have a full Audius stream for this track title
+          // Check if we already have an exact Audius stream match for this track title & artist
           const matchingAudius = results.find(s =>
-            s.title.toLowerCase() === song.title.toLowerCase() ||
-            s.title.toLowerCase().includes(song.title.toLowerCase())
+            s.title.toLowerCase() === song.title.toLowerCase() &&
+            s.artist.toLowerCase() === song.artist.toLowerCase()
           );
           if (matchingAudius) {
             song.audioUrl = matchingAudius.audioUrl;
             song.streamMirrors = matchingAudius.streamMirrors;
-            // Retain original iTunes track duration if available
             song.duration = r.trackTimeMillis || matchingAudius.duration;
           } else {
-            // Attempt stream resolution
+            // Attempt exact stream resolution for this specific track title and artist
             const fullStream = await resolveFullLengthStream(song.title, song.artist);
             if (fullStream) {
               song.audioUrl = fullStream.audioUrl;
               song.streamMirrors = fullStream.mirrors;
               song.duration = r.trackTimeMillis || fullStream.duration || 210000;
-            } else {
-              // Fallback audio stream while maintaining track metadata
-              const fallbackUrl = 'https://api.audius.co/v1/tracks/jz42bGa/stream?app_name=SPOTIFY_CLONE';
-              song.audioUrl = fallbackUrl;
-              song.streamMirrors = [fallbackUrl];
-              song.duration = r.trackTimeMillis || 210000;
             }
           }
           return song;
@@ -159,16 +152,6 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
   } catch (e) {
     console.warn("iTunes Search error:", e);
   }
-
-  // Enforce zero 30-second apple preview links
-  results.forEach(song => {
-    if (song.audioUrl.includes('apple.com') || song.audioUrl.includes('mzstatic') || song.duration <= 30000) {
-      const fallbackUrl = 'https://api.audius.co/v1/tracks/jz42bGa/stream?app_name=SPOTIFY_CLONE';
-      song.audioUrl = fallbackUrl;
-      song.streamMirrors = [fallbackUrl];
-      song.duration = 240000;
-    }
-  });
 
   // Deduplicate results by title+artist
   const seen = new Set<string>();
