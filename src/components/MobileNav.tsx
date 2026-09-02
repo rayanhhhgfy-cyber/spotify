@@ -19,29 +19,15 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
     return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
   }, []);
 
+  const [showInstallModal, setShowInstallModal] = useState(false);
+
   const handleInstallPWA = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
       setDeferredPrompt(null);
     } else {
-      const manifestData = {
-        name: "Spotify Clone PWA",
-        short_name: "SpotifyClone",
-        start_url: window.location.origin,
-        display: "standalone",
-        background_color: "#09090b",
-        theme_color: "#09090b"
-      };
-      const blob = new Blob([JSON.stringify(manifestData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'spotify-clone.webmanifest';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setShowInstallModal(true);
     }
   };
 
@@ -74,11 +60,43 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
       <button
         onClick={handleInstallPWA}
         className="flex flex-col items-center justify-center space-y-1 w-full h-full text-green-500 hover:text-green-400 transition-colors"
-        title="Download PWA"
+        title="Install PWA"
       >
         <Download size={22} />
         <span className="text-[10px] font-bold">PWA</span>
       </button>
+
+      {showInstallModal && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 text-left" onClick={() => setShowInstallModal(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-white space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center flex-shrink-0">
+                <Download size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Install Spotify Clone</h3>
+                <p className="text-xs text-zinc-400">Add to Home Screen / Taskbar</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm text-zinc-300 bg-zinc-800/60 p-4 rounded-xl border border-zinc-700/50">
+              <p className="font-bold text-white text-xs uppercase tracking-wider">How to Install:</p>
+              <ol className="list-decimal list-inside space-y-2 text-xs leading-relaxed text-zinc-300">
+                <li>Tap your browser menu (<span className="text-white font-bold">⋮</span> or Share <span className="text-white font-bold">⎋</span>).</li>
+                <li>Select <span className="text-green-400 font-bold">"Add to Home Screen"</span> or <span className="text-green-400 font-bold">"Install App"</span>.</li>
+                <li>Follow the prompt to pin it to your device!</li>
+              </ol>
+            </div>
+
+            <button
+              onClick={() => setShowInstallModal(false)}
+              className="w-full py-3 bg-green-500 text-black font-bold rounded-xl hover:bg-green-400 transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

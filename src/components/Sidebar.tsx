@@ -41,6 +41,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
     };
   }, []);
 
+  const [showInstallModal, setShowInstallModal] = useState(false);
+
   const handleInstallPWA = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -50,24 +52,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
       }
       setDeferredPrompt(null);
     } else {
-      // Trigger a direct file download of the PWA App Shortcut / WebManifest
-      const manifestData = {
-        name: "Spotify Clone PWA",
-        short_name: "SpotifyClone",
-        start_url: window.location.origin,
-        display: "standalone",
-        background_color: "#09090b",
-        theme_color: "#09090b"
-      };
-      const blob = new Blob([JSON.stringify(manifestData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'spotify-clone.webmanifest';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      setShowInstallModal(true);
     }
   };
 
@@ -151,11 +136,44 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
             <Download size={16} />
           </div>
           <div className="text-left flex-1 min-w-0">
-            <p className="font-bold truncate text-white">Download PWA App</p>
-            <p className="text-[10px] text-zinc-400 truncate">Listen offline anytime</p>
+            <p className="font-bold truncate text-white">Install App / PWA</p>
+            <p className="text-[10px] text-zinc-400 truncate">Pin to Taskbar & Start</p>
           </div>
         </motion.button>
       </div>
+
+      {showInstallModal && (
+        <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setShowInstallModal(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-white space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-full bg-green-500/20 text-green-500 flex items-center justify-center">
+                <Download size={20} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Install Spotify Clone</h3>
+                <p className="text-xs text-zinc-400">Pin to Taskbar, Start, or Home Screen</p>
+              </div>
+            </div>
+
+            <div className="space-y-3 text-sm text-zinc-300 bg-zinc-800/60 p-4 rounded-xl border border-zinc-700/50">
+              <p className="font-bold text-white text-xs uppercase tracking-wider">How to Install & Pin:</p>
+              <ol className="list-decimal list-inside space-y-2 text-xs leading-relaxed text-zinc-300">
+                <li>Look at your browser's top-right address bar.</li>
+                <li>Click the <span className="text-green-400 font-bold">Install App</span> icon or open <span className="text-white font-bold">Browser Menu (⋮ / •••)</span>.</li>
+                <li>Select <span className="text-white font-bold">"Install Spotify Clone"</span> or <span className="text-white font-bold">"Add to Home Screen / Taskbar"</span>.</li>
+                <li>Once installed, right-click the desktop icon to <span className="text-green-400 font-bold">"Pin to Taskbar"</span> or <span className="text-green-400 font-bold">"Pin to Start"</span>.</li>
+              </ol>
+            </div>
+
+            <button
+              onClick={() => setShowInstallModal(false)}
+              className="w-full py-3 bg-green-500 text-black font-bold rounded-xl hover:bg-green-400 transition-colors"
+            >
+              Got it!
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
