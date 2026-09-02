@@ -55,20 +55,13 @@ export const formatAudiusSong = (r: any): Song => {
   };
 };
 
-export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration: number } | null> => {
-  // Query both original terms and artist/arabic script fallbacks for full-length streams
+export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration?: number } | null> => {
+  // Query original track title and artist terms for stream resolution
   const queries: string[] = [
     `${title} ${artist}`.trim(),
     title.trim(),
     artist.trim()
   ];
-
-  // Specific fallback handling for Arabic artists like Rashed Al-Majid
-  if (artist.toLowerCase().includes('rashed') || artist.toLowerCase().includes('majid') || title.toLowerCase().includes('balibali') || title.includes('هلا')) {
-    queries.push('راشد الماجد');
-    queries.push('راشد');
-    queries.push('هلا');
-  }
 
   for (const q of queries) {
     if (!q) continue;
@@ -78,7 +71,6 @@ export const resolveFullLengthStream = async (title: string, artist: string): Pr
         if (!res.ok) continue;
         const data = await res.json();
         if (data && Array.isArray(data.data) && data.data.length > 0) {
-          // Find full-length track with duration > 60s
           const fullTrack = data.data.find((r: any) =>
             (r.stream?.url || r.stream_url || r.is_streamable || r.id) &&
             ((r.duration || 0) > 60)
@@ -142,20 +134,21 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
           if (matchingAudius) {
             song.audioUrl = matchingAudius.audioUrl;
             song.streamMirrors = matchingAudius.streamMirrors;
-            song.duration = matchingAudius.duration;
+            // Retain original iTunes track duration if available
+            song.duration = r.trackTimeMillis || matchingAudius.duration;
           } else {
             // Attempt stream resolution
             const fullStream = await resolveFullLengthStream(song.title, song.artist);
             if (fullStream) {
               song.audioUrl = fullStream.audioUrl;
               song.streamMirrors = fullStream.mirrors;
-              song.duration = fullStream.duration;
+              song.duration = r.trackTimeMillis || fullStream.duration || 210000;
             } else {
-              // Guaranteed full-length fallback audio stream URL
+              // Fallback audio stream while maintaining track metadata
               const fallbackUrl = 'https://api.audius.co/v1/tracks/jz42bGa/stream?app_name=SPOTIFY_CLONE';
               song.audioUrl = fallbackUrl;
               song.streamMirrors = [fallbackUrl];
-              song.duration = 240000;
+              song.duration = r.trackTimeMillis || 210000;
             }
           }
           return song;
@@ -366,26 +359,65 @@ export const getDownloadedSongs = async (): Promise<Song[]> => {
 export const importSpotifyPlaylist = async (url: string): Promise<Song[]> => {
   if (!url || !url.trim()) return [];
 
+  const songs: Song[] = [];
+
   try {
-    // Extract Spotify title and author metadata via Spotify's open oEmbed API
+    // Extract Spotify playlist or track ID
+    const match = url.match(/(playlist|album|track)\/([a-zA-Z0-9]+)/);
+    if (match) {
+      const type = match[1];
+      const id = match[2];
+      const embedUrl = `https://open.spotify.com/embed/${type}/${id}`;
+
+      const res = await fetch(embedUrl);
+      if (res.ok) {
+        const html = await res.text();
+        const scriptMatch = html.match(/<script id=\"__NEXT_DATA__\" type=\"application\/json\">([^<]+)<\/script>/);
+        if (scriptMatch) {
+          const data = JSON.parse(scriptMatch[1]);
+          const entity = data.props?.pageProps?.state?.data?.entity;
+
+          if (entity && Array.isArray(entity.trackList) && entity.trackList.length > 0) {
+            // Process all tracks extracted from the Spotify playlist embed
+            const trackPromises = entity.trackList.slice(0, 30).map(async (t: any) => {
+              const trackTitle = t.title || t.name || '';
+              const trackArtist = t.subtitle || t.artists?.[0]?.name || '';
+              if (trackTitle) {
+                const searchResults = await searchSongs(`${trackTitle} ${trackArtist}`.trim());
+                if (searchResults.length > 0) {
+                  return searchResults[0];
+                }
+              }
+              return null;
+            });
+
+            const resolvedTracks = await Promise.all(trackPromises);
+            songs.push(...resolvedTracks.filter((s): s is Song => s !== null));
+            if (songs.length > 0) {
+              return songs;
+            }
+          }
+        }
+      }
+    }
+
+    // oEmbed Fallback for single track/playlist links
     const oembedRes = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url.trim())}`);
     if (oembedRes.ok) {
       const data = await oembedRes.json();
       const title = data.title || '';
       const author = data.author_name || '';
-
-      // Perform exact query search on our global catalog
       const query = `${title} ${author}`.trim();
       const results = await searchSongs(query);
       if (results.length > 0) {
-        return results.slice(0, 10);
+        return results;
       }
     }
   } catch (e) {
-    console.warn("Spotify oEmbed import error:", e);
+    console.warn("Spotify import error:", e);
   }
 
-  // Fallback: search using any text extracted from the URL
+  // Fallback term search
   const cleanTerm = url.replace(/^https?:\/\/[^\/]+\//, '').replace(/[\/\?_\-]/g, ' ').trim();
   const fallbackResults = await searchSongs(cleanTerm || "Top Chart Hits");
   return fallbackResults.slice(0, 10);
