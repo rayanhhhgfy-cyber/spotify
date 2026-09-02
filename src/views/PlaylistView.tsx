@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { getPlaylists, deletePlaylist, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs } from '../api';
+import { getPlaylists, deletePlaylist, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs, downloadPlaylist } from '../api';
 import { Playlist, Song } from '../types';
-import { Music, Trash2, Edit2, GripVertical, Play, Shuffle, AlertTriangle, Share2 } from 'lucide-react';
+import { Music, Trash2, Edit2, GripVertical, Play, Shuffle, AlertTriangle, Share2, Download, CheckCircle2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { SharePlaylistModal } from '../components/SharePlaylistModal';
 
@@ -16,6 +16,10 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   const [newName, setNewName] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStatusText, setDownloadStatusText] = useState('');
+  const [isDownloaded, setIsDownloaded] = useState(false);
   const { playSong, shufflePlay } = usePlayer();
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
@@ -26,6 +30,14 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
       if (p) {
         setPlaylist(p);
         setNewName(p.name);
+        // Check if all songs are downloaded locally
+        try {
+          const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+          const allDownloaded = p.songs.length > 0 && p.songs.every(s => downloaded.some((dl: Song) => dl.id === s.id));
+          setIsDownloaded(allDownloaded);
+        } catch {
+          setIsDownloaded(false);
+        }
       } else {
         setPlaylist(null);
       }
@@ -97,6 +109,23 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
     setPlaylist({...playlist, songs: playlist.songs.filter(s => s.id !== songId)});
   };
 
+  const handleDownload = async () => {
+    if (!playlist || playlist.songs.length === 0) return;
+    setIsDownloading(true);
+    setDownloadProgress(0);
+    setDownloadStatusText('Starting download...');
+    
+    await downloadPlaylist(playlist, (progress, title) => {
+      setDownloadProgress(progress);
+      setDownloadStatusText(title === 'Complete' ? 'Download Complete!' : `Downloading: ${title}`);
+    });
+    
+    setTimeout(() => {
+      setIsDownloading(false);
+      setIsDownloaded(true);
+    }, 1500);
+  };
+
   return (
     <div className="px-6 py-8 pb-32 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row items-center md:items-end space-y-6 md:space-y-0 md:space-x-6 mb-8 text-center md:text-left">
@@ -158,6 +187,30 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
                   <Shuffle size={20} className="text-green-500" />
                   <span>Shuffle</span>
                 </button>
+                
+                <button
+                  onClick={handleDownload}
+                  disabled={isDownloading || isDownloaded || playlist.songs.length === 0}
+                  className={`flex items-center space-x-2 px-6 py-3 rounded-full font-bold hover:scale-105 transition-all shadow-md border ${
+                    isDownloaded 
+                      ? 'bg-green-500/20 text-green-400 border-green-500/30' 
+                      : isDownloading || playlist.songs.length === 0
+                        ? 'bg-zinc-800 text-green-400 border-green-500/50 opacity-50 cursor-not-allowed hover:scale-100'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700'
+                  }`}
+                  title={isDownloaded ? "Downloaded" : "Download Playlist"}
+                >
+                  {isDownloaded ? (
+                    <CheckCircle2 size={20} className="text-green-400" />
+                  ) : isDownloading ? (
+                    <div className="w-5 h-5 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
+                  ) : (
+                    <Download size={20} className={isDownloaded ? "text-green-400" : "text-zinc-400"} />
+                  )}
+                  <span>
+                    {isDownloaded ? 'Downloaded' : isDownloading ? `${Math.round(downloadProgress * 100)}%` : 'Download'}
+                  </span>
+                </button>
               </>
             )}
 
@@ -179,6 +232,12 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
               <span className="text-sm">Delete</span>
             </button>
           </div>
+
+          {isDownloading && (
+            <p className="text-xs font-medium text-green-400 mt-3 flex items-center justify-center md:justify-start">
+              {downloadStatusText}
+            </p>
+          )}
         </div>
       </div>
 

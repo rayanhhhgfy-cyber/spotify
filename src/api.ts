@@ -249,6 +249,46 @@ export const downloadSong = async (song: Song): Promise<boolean> => {
   }
 };
 
+export const downloadPlaylist = async (
+  playlist: Playlist,
+  onProgress?: (progress: number, currentSong: string) => void
+): Promise<void> => {
+  const songs = playlist.songs;
+  let completed = 0;
+
+  for (const song of songs) {
+    onProgress?.(completed / songs.length, song.title);
+    
+    // Resolve full length stream if necessary (e.g. no audioUrl or iTunes preview)
+    if (!song.youtubeId && (!song.audioUrl || song.id.startsWith('itunes-') || song.duration <= 30000)) {
+      try {
+        const resolved = await resolveFullLengthStream(song.title, song.artist);
+        if (resolved && resolved.audioUrl) {
+          song.audioUrl = resolved.audioUrl;
+          if (resolved.youtubeId) song.youtubeId = resolved.youtubeId;
+          if (resolved.duration) song.duration = resolved.duration;
+        }
+      } catch (e) {
+        console.warn(`Failed to resolve ${song.title}`, e);
+      }
+    }
+    
+    await downloadSong(song);
+    completed++;
+  }
+  
+  onProgress?.(1, 'Complete');
+  
+  // Persist updated playlist if songs were mutated (e.g. audioUrl resolved)
+  const playlists = getPlaylists();
+  const idx = playlists.findIndex(p => p.id === playlist.id);
+  if (idx !== -1) {
+    playlists[idx] = playlist;
+    localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
+  }
+};
+
 export const getPlaylists = (): Playlist[] => {
   try {
     return JSON.parse(localStorage.getItem('playlists') || '[]');
