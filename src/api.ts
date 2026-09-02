@@ -1,4 +1,5 @@
 import { Song, Playlist } from './types';
+import LZString from 'lz-string';
 
 const AUDIUS_DISCOVERY_NODES = [
   'https://api.audius.co',
@@ -324,6 +325,312 @@ export const deletePlaylist = (playlistId: string) => {
   notifyPlaylistsChanged();
 };
 
+/**
+ * Compact encoder for universal serverless cross-device playlist sharing.
+ * Safely compresses playlist metadata and song list into a URL-safe LZString payload.
+ */
+export const encodePlaylistPayload = (playlist: Playlist): string => {
+  try {
+    const compactObj = {
+      n: playlist.name,
+      i: playlist.shareId || playlist.id,
+      c: playlist.coverUrl || (playlist.songs[0]?.coverUrl || ''),
+      s: (playlist.songs || []).map(song => ({
+        t: song.title,
+        a: song.artist,
+        al: song.album || '',
+        c: song.coverUrl || '',
+        u: song.audioUrl || '',
+        d: song.duration || 0,
+        y: song.youtubeId || '',
+        m: song.streamMirrors || []
+      }))
+    };
+    const jsonStr = JSON.stringify(compactObj);
+    const compressed = LZString.compressToEncodedURIComponent(jsonStr);
+    return `lz_${compressed}`;
+  } catch (e) {
+    console.error('Failed to encode playlist payload:', e);
+    return '';
+  }
+};
+
+/**
+ * Decodes a URL-safe playlist payload back into a full Playlist object.
+ * Supports both LZ-compressed (lz_...) and Base64 format strings.
+ */
+export const decodePlaylistPayload = (encoded: string): Playlist | null => {
+  try {
+    if (!encoded || !encoded.trim()) return null;
+    let jsonStr: string | null = null;
+    const raw = encoded.trim();
+
+    // 1. Try LZString decompression
+    if (raw.startsWith('lz_')) {
+      jsonStr = LZString.decompressFromEncodedURIComponent(raw.substring(3));
+    } else {
+      // Try direct LZ decompression first
+      jsonStr = LZString.decompressFromEncodedURIComponent(raw);
+    }
+
+    // 2. Base64 fallback if not LZ
+    if (!jsonStr) {
+      try {
+        let base64 = raw.replace(/-/g, '+').replace(/_/g, '/');
+        while (base64.length % 4) {
+          base64 += '=';
+        }
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        jsonStr = new TextDecoder().decode(bytes);
+      } catch {}
+    }
+
+    if (!jsonStr) return null;
+    const data = JSON.parse(jsonStr);
+
+    if (!data || (!data.n && !data.name)) return null;
+
+    const songs: Song[] = (data.s || data.songs || []).map((s: any, idx: number) => ({
+      id: s.id || `shared-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      title: s.t || s.title || 'Unknown Title',
+      artist: s.a || s.artist || 'Unknown Artist',
+      album: s.al || s.album || 'Single',
+      coverUrl: s.c || s.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg',
+      audioUrl: s.u || s.audioUrl || '',
+      duration: s.d || s.duration || 0,
+      youtubeId: s.y || s.youtubeId || undefined,
+      streamMirrors: Array.isArray(s.m) ? s.m : (s.streamMirrors || [])
+    }));
+
+    return {
+      id: Date.now().toString(),
+      shareId: data.i || data.shareId || `pl_${Math.random().toString(36).substring(2, 9)}`,
+      name: data.n || data.name || 'Shared Playlist',
+      songs,
+      coverUrl: data.c || data.coverUrl || (songs[0]?.coverUrl || '')
+    };
+  } catch (e) {
+    console.error('Failed to decode playlist payload:', e);
+    return null;
+  }
+};
+
+/**
+ * Register or update a shared playlist on the server and get a constant shareable link.
+ */
+export const sharePlaylist = async (playlist: Playlist): Promise<{ shareId: string; shareUrl: string }> => {
+  const currentPlaylists = getPlaylists();
+  const existing = currentPlaylists.find(p => p.id === playlist.id);
+
+  // Generate constant deterministic shareId if not already present
+  const shareId = existing?.shareId || playlist.shareId || `pl_${Math.random().toString(36).substring(2, 9)}`;
+
+  // Save shareId locally
+  if (existing) {
+    existing.shareId = shareId;
+    localStorage.setItem('playlists', JSON.stringify(currentPlaylists));
+  }
+
+  // Generate compact self-contained payload for universal cross-origin loading (e.g. Vercel, localhost, mobile)
+  const encodedPayload = encodePlaylistPayload({ ...playlist, shareId });
+
+  // Determine current origin (e.g. https://spotify-rayyan.vercel.app or preview origin)
+  const baseUrl = (typeof window !== 'undefined' && window.location.origin)
+    ? window.location.origin
+    : 'https://spotify-rayyan.vercel.app';
+
+  // Constant Universal Share URL (Has clean query ID + self-contained payload in hash)
+  const shareUrl = encodedPayload 
+    ? `${baseUrl}/?share=${shareId}#d=${encodedPayload}`
+    : `${baseUrl}/?share=${shareId}`;
+
+  // Also sync to backend server in background if available
+  const payloadBody = JSON.stringify({
+    shareId,
+    name: playlist.name,
+    songs: playlist.songs,
+    coverUrl: playlist.coverUrl || (playlist.songs[0]?.coverUrl || ''),
+    description: playlist.description || ''
+  });
+
+  try {
+    fetch('/api/share-playlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: payloadBody
+    }).catch(() => {});
+
+    // If on custom domain like Vercel, also sync to cloud backend server
+    if (typeof window !== 'undefined' && !window.location.hostname.includes('run.app')) {
+      fetch('https://ais-pre-7uxg4ouinzeecu65qmm74g-630584779843.europe-west2.run.app/api/share-playlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payloadBody
+      }).catch(() => {});
+    }
+  } catch (e) {
+    // Non-blocking
+  }
+
+  return { shareId, shareUrl };
+};
+
+const CLOUD_BACKEND_URL = 'https://ais-pre-7uxg4ouinzeecu65qmm74g-630584779843.europe-west2.run.app';
+
+/**
+ * Fetch a shared playlist by its constant shareId from the server.
+ */
+export const getSharedPlaylist = async (shareId: string): Promise<Playlist | null> => {
+  if (!shareId) return null;
+
+  // 1. Try local/relative API
+  try {
+    const res = await fetch(`/api/share-playlist/${encodeURIComponent(shareId)}`);
+    if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data && data.playlist) {
+          return data.playlist;
+        }
+      }
+    }
+  } catch (e) {
+    // Continue to cloud fallback
+  }
+
+  // 2. If running on external host (e.g. spotify-rayyan.vercel.app), fallback to cloud backend server
+  try {
+    const remoteUrl = `${CLOUD_BACKEND_URL}/api/share-playlist/${encodeURIComponent(shareId)}`;
+    const remoteRes = await fetch(remoteUrl);
+    if (remoteRes.ok) {
+      const data = await remoteRes.json();
+      if (data && data.playlist) {
+        return data.playlist;
+      }
+    }
+  } catch (e) {
+    console.error('Error fetching shared playlist from remote API:', e);
+  }
+
+  return null;
+};
+
+/**
+ * Import a shared playlist from a share URL, encoded string, or shareId into the local library.
+ */
+export const importSharedPlaylist = async (shareInput: string): Promise<Playlist | null> => {
+  if (!shareInput || !shareInput.trim()) return null;
+
+  let raw = shareInput.trim();
+  let shareId = '';
+  let payloadStr = '';
+
+  // 1. Check if raw input itself is an encoded payload or contains hash data
+  if (raw.includes('#d=') || raw.includes('#data=') || raw.includes('#payload=')) {
+    const hashPart = raw.split('#')[1] || '';
+    const hashParams = new URLSearchParams(hashPart);
+    payloadStr = hashParams.get('d') || hashParams.get('data') || hashParams.get('payload') || '';
+  }
+
+  if (raw.includes('?data=') || raw.includes('&data=')) {
+    try {
+      const url = new URL(raw, window.location.origin);
+      payloadStr = url.searchParams.get('data') || payloadStr;
+    } catch {}
+  }
+
+  // 2. If payload is found, decode instantly
+  if (payloadStr) {
+    const decoded = decodePlaylistPayload(payloadStr);
+    if (decoded && decoded.songs) {
+      const playlists = getPlaylists();
+      let targetPlaylist = playlists.find(p => p.shareId === decoded.shareId || p.name === decoded.name);
+
+      if (targetPlaylist) {
+        targetPlaylist.name = decoded.name;
+        targetPlaylist.songs = decoded.songs;
+        if (decoded.coverUrl) targetPlaylist.coverUrl = decoded.coverUrl;
+      } else {
+        targetPlaylist = {
+          id: Date.now().toString(),
+          shareId: decoded.shareId,
+          name: decoded.name,
+          songs: decoded.songs,
+          coverUrl: decoded.coverUrl || (decoded.songs?.[0]?.coverUrl || '')
+        };
+        playlists.push(targetPlaylist);
+      }
+
+      localStorage.setItem('playlists', JSON.stringify(playlists));
+      notifyPlaylistsChanged();
+      return targetPlaylist;
+    }
+  }
+
+  // 3. Extract shareId from URL parameters or raw string
+  if (raw.includes('http://') || raw.includes('https://') || raw.includes('?')) {
+    try {
+      const url = new URL(raw, window.location.origin);
+      const queryShare = url.searchParams.get('share') || url.searchParams.get('shared_playlist') || url.searchParams.get('playlist');
+      if (queryShare) {
+        shareId = queryShare;
+      }
+    } catch {
+      const match = raw.match(/[?&]share=([^&#]+)/) || raw.match(/[?&]shared_playlist=([^&#]+)/);
+      if (match && match[1]) {
+        shareId = match[1];
+      }
+    }
+  } else {
+    shareId = raw;
+  }
+
+  // 4. Try fetching from server endpoint
+  if (shareId) {
+    const sharedData = await getSharedPlaylist(shareId);
+    if (sharedData && sharedData.name) {
+      const playlists = getPlaylists();
+      let targetPlaylist = playlists.find(p => p.shareId === shareId);
+
+      if (targetPlaylist) {
+        targetPlaylist.name = sharedData.name;
+        targetPlaylist.songs = sharedData.songs || [];
+        if (sharedData.coverUrl) targetPlaylist.coverUrl = sharedData.coverUrl;
+      } else {
+        targetPlaylist = {
+          id: Date.now().toString(),
+          shareId: shareId,
+          name: sharedData.name,
+          songs: sharedData.songs || [],
+          coverUrl: sharedData.coverUrl || (sharedData.songs?.[0]?.coverUrl || '')
+        };
+        playlists.push(targetPlaylist);
+      }
+
+      localStorage.setItem('playlists', JSON.stringify(playlists));
+      notifyPlaylistsChanged();
+      return targetPlaylist;
+    }
+  }
+
+  // 5. Try direct base64 decode if raw input was raw encoded string
+  const directDecoded = decodePlaylistPayload(raw);
+  if (directDecoded && directDecoded.songs) {
+    const playlists = getPlaylists();
+    playlists.push(directDecoded);
+    localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
+    return directDecoded;
+  }
+
+  return null;
+};
+
 export const getTrendingSongs = async (): Promise<Song[]> => {
   // 1. Primary: Backend trending endpoint providing full songs
   try {
@@ -397,10 +704,18 @@ export const recordPlay = (song: Song) => {
   if (!song || !song.id) return;
   try {
     const raw = localStorage.getItem('listening_stats') || '[]';
-    const stats: Array<{ song: Song; count: number; lastPlayed: number }> = JSON.parse(raw);
-    const existingIndex = stats.findIndex(s => s.song.id === song.id);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = [];
+    }
+    const stats: Array<{ song: Song; count: number; lastPlayed: number }> = Array.isArray(parsed)
+      ? parsed.filter((item: any) => item && item.song && item.song.id)
+      : [];
+    const existingIndex = stats.findIndex(s => s && s.song && s.song.id === song.id);
     if (existingIndex >= 0) {
-      stats[existingIndex].count += 1;
+      stats[existingIndex].count = (stats[existingIndex].count || 0) + 1;
       stats[existingIndex].lastPlayed = Date.now();
     } else {
       stats.push({ song, count: 1, lastPlayed: Date.now() });
@@ -414,7 +729,16 @@ export const recordPlay = (song: Song) => {
 export const getListeningStats = (): Array<{ song: Song; count: number; lastPlayed: number }> => {
   try {
     const raw = localStorage.getItem('listening_stats') || '[]';
-    return JSON.parse(raw).sort((a: any, b: any) => b.count - a.count);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item: any) => item && item.song && item.song.id)
+      .sort((a: any, b: any) => (b.count || 0) - (a.count || 0));
   } catch {
     return [];
   }

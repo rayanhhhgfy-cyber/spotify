@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { getPlaylists, deletePlaylist, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs } from '../api';
 import { Playlist, Song } from '../types';
-import { Music, Trash2, Edit2, GripVertical, Play, Shuffle, AlertTriangle } from 'lucide-react';
+import { Music, Trash2, Edit2, GripVertical, Play, Shuffle, AlertTriangle, Share2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
+import { SharePlaylistModal } from '../components/SharePlaylistModal';
 
 interface PlaylistViewProps {
   playlistId: string;
@@ -14,6 +15,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   const [isEditing, setIsEditing] = useState(false);
   const [newName, setNewName] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const { playSong, shufflePlay } = usePlayer();
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
@@ -160,8 +162,17 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
             )}
 
             <button
+              onClick={() => setShowShareModal(true)}
+              className="flex items-center space-x-2 px-5 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700 cursor-pointer group"
+              title="Share Playlist (Get permanent link for all devices)"
+            >
+              <Share2 size={18} className="text-green-400 group-hover:scale-110 transition-transform" />
+              <span className="text-sm">Share</span>
+            </button>
+
+            <button
               onClick={() => setShowDeleteModal(true)}
-              className="flex items-center space-x-2 px-4 py-3 rounded-full bg-zinc-900/80 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 font-medium hover:scale-105 transition-all shadow-md border border-zinc-800 hover:border-red-800/60"
+              className="flex items-center space-x-2 px-4 py-3 rounded-full bg-zinc-900/80 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 font-medium hover:scale-105 transition-all shadow-md border border-zinc-800 hover:border-red-800/60 cursor-pointer"
               title="Delete Playlist"
             >
               <Trash2 size={18} />
@@ -243,6 +254,13 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
           </div>
         </div>
       )}
+
+      {/* Share Playlist Modal */}
+      <SharePlaylistModal
+        playlist={playlist}
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+      />
     </div>
   );
 };

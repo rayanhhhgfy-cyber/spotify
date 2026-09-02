@@ -16,5 +16,7 @@ export interface Playlist {
   name: string;
   songs: Song[];
   coverUrl?: string;
+  shareId?: string;
+  description?: string;
 }
 

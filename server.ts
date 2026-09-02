@@ -1,12 +1,60 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import ytSearch from 'yt-search';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+// CORS middleware to allow cross-origin requests from custom subdomains (e.g. spotify-rayyan.vercel.app)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// Shared playlists persistence
+const DATA_DIR = path.join(process.cwd(), 'data');
+const SHARED_PLAYLISTS_FILE = path.join(DATA_DIR, 'shared_playlists.json');
+
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (e) {}
+
+function getSharedPlaylists(): Record<string, any> {
+  try {
+    if (fs.existsSync(SHARED_PLAYLISTS_FILE)) {
+      const content = fs.readFileSync(SHARED_PLAYLISTS_FILE, 'utf-8');
+      return JSON.parse(content || '{}');
+    }
+  } catch (e) {
+    console.error('Error reading shared playlists:', e);
+  }
+  return {};
+}
+
+function saveSharedPlaylistToDisk(id: string, playlistData: any) {
+  try {
+    const all = getSharedPlaylists();
+    all[id] = {
+      ...playlistData,
+      shareId: id,
+      updatedAt: Date.now()
+    };
+    fs.writeFileSync(SHARED_PLAYLISTS_FILE, JSON.stringify(all, null, 2), 'utf-8');
+  } catch (e) {
+    console.error('Error saving shared playlist:', e);
+  }
+}
 
 // Format YouTube search results into unified Song format
 function formatYtVideo(v: ytSearch.VideoSearchResult) {
@@ -296,6 +344,73 @@ app.post('/api/import-playlist', async (req, res) => {
     console.error('Import error:', error);
     return res.status(500).json({ error: error.message, songs: [] });
   }
+});
+
+// 4. Share Playlist endpoints (Constant link for cross-device playlist sharing)
+app.post('/api/share-playlist', (req, res) => {
+  try {
+    const { name, songs, shareId, description, coverUrl } = req.body;
+    if (!name && (!songs || songs.length === 0)) {
+      return res.status(400).json({ error: 'Playlist name or songs required' });
+    }
+
+    // Generate constant shareId if not already provided
+    const id = (shareId && typeof shareId === 'string' && shareId.trim()) 
+      ? shareId.trim() 
+      : `pl_${Math.random().toString(36).substring(2, 9)}`;
+
+    const playlistData = {
+      id,
+      shareId: id,
+      name: name || 'Shared Playlist',
+      description: description || '',
+      coverUrl: coverUrl || (Array.isArray(songs) && songs[0]?.coverUrl ? songs[0].coverUrl : ''),
+      songs: Array.isArray(songs) ? songs : [],
+      createdAt: Date.now(),
+    };
+
+    saveSharedPlaylistToDisk(id, playlistData);
+
+    return res.json({
+      success: true,
+      shareId: id,
+      playlist: playlistData
+    });
+  } catch (err: any) {
+    console.error('Error sharing playlist:', err);
+    return res.status(500).json({ error: 'Failed to share playlist' });
+  }
+});
+
+app.get('/api/share-playlist/:id', (req, res) => {
+  try {
+    const id = req.params.id;
+    const all = getSharedPlaylists();
+    const playlist = all[id];
+
+    if (!playlist) {
+      return res.status(404).json({ error: 'Shared playlist not found' });
+    }
+
+    return res.json({
+      success: true,
+      shareId: id,
+      playlist
+    });
+  } catch (err: any) {
+    console.error('Error retrieving shared playlist:', err);
+    return res.status(500).json({ error: 'Failed to get shared playlist' });
+  }
+});
+
+app.get('/api/shared/:id', (req, res) => {
+  const id = req.params.id;
+  const all = getSharedPlaylists();
+  const playlist = all[id];
+  if (!playlist) {
+    return res.status(404).json({ error: 'Shared playlist not found' });
+  }
+  return res.json({ success: true, shareId: id, playlist });
 });
 
 // Vite middleware & Static serving

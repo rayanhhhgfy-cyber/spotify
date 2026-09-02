@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, addSongToPlaylist, createPlaylist, getPlaylists, deletePlaylist } from '../api';
+import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, importSharedPlaylist, addSongToPlaylist, createPlaylist, getPlaylists, deletePlaylist } from '../api';
 import { Song, Playlist } from '../types';
 import { TrackList } from '../components/TrackList';
-import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic, Trash2 } from 'lucide-react';
+import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic, Trash2, Share2, Sparkles } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 type Tab = 'playlists' | 'liked' | 'stats' | 'downloads' | 'local';
@@ -43,12 +43,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
     };
   }, []);
 
+  const [shareInputUrl, setShareInputUrl] = useState('');
+  const [isImportingShare, setIsImportingShare] = useState(false);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
+
   const handleSpotifyImport = async () => {
-    if (!spotifyUrl.trim()) return;
+    const raw = spotifyUrl.trim();
+    if (!raw) return;
+
+    // If user pasted a Spotify Clone share link or code here, automatically route to share importer
+    if (raw.includes('share=') || raw.startsWith('pl_')) {
+      handleSharedPlaylistImport(raw);
+      return;
+    }
+
     setIsImporting(true);
     setImportStatus('Extracting track metadata & resolving songs...');
     try {
-      const result = await importSpotifyPlaylist(spotifyUrl.trim());
+      const result = await importSpotifyPlaylist(raw);
       if (result && result.songs && result.songs.length > 0) {
         const p = createPlaylist(result.name || "Imported Playlist");
         result.songs.forEach(s => addSongToPlaylist(p.id, s));
@@ -67,6 +79,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
       setImportStatus('Failed to import playlist. Please verify the URL.');
     }
     setIsImporting(false);
+  };
+
+  const handleSharedPlaylistImport = async (overrideInput?: string) => {
+    const input = (overrideInput || shareInputUrl).trim();
+    if (!input) return;
+
+    setIsImportingShare(true);
+    setShareStatus('Fetching shared playlist & songs from server...');
+    try {
+      const imported = await importSharedPlaylist(input);
+      if (imported && imported.songs && imported.songs.length >= 0) {
+        setPlaylists(getPlaylists());
+        setShareInputUrl('');
+        setSpotifyUrl('');
+        setShareStatus(`Imported "${imported.name}" with ${imported.songs.length} songs!`);
+        setTimeout(() => {
+          setShareStatus(null);
+          onViewChange(`playlist:${imported.id}`);
+        }, 1000);
+      } else {
+        setShareStatus('Shared playlist not found. Please check the link or code.');
+      }
+    } catch (e) {
+      console.error('Shared playlist import error:', e);
+      setShareStatus('Failed to load shared playlist.');
+    }
+    setIsImportingShare(false);
   };
 
   const handleLocalFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -259,49 +298,113 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
 
       {activeTab === 'local' && (
         <div className="space-y-8 animate-in fade-in">
-          <h2 className="text-3xl font-black text-white tracking-tighter">Import Music</h2>
+          <div>
+            <h2 className="text-3xl font-black text-white tracking-tighter mb-1">Import Music & Playlists</h2>
+            <p className="text-zinc-400 text-sm">Sync shared playlists across devices or import from Spotify and local files.</p>
+          </div>
           
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl">
-              <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mb-6">
-                <LinkIcon size={32} />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Spotify/Apple Music</h3>
-              <p className="text-zinc-400 mb-6 font-medium">Paste a playlist link to recreate it here.</p>
-              
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="https://open.spotify.com/playlist/..." 
-                  className="flex-1 bg-black border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500"
-                  value={spotifyUrl}
-                  onChange={e => setSpotifyUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSpotifyImport()}
-                />
-                <button 
-                  onClick={handleSpotifyImport}
-                  disabled={isImporting || !spotifyUrl.trim()}
-                  className="bg-green-500 text-black font-bold px-6 py-3 rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {isImporting ? 'Importing...' : 'Import'}
-                </button>
-              </div>
-
-              {importStatus && (
-                <div className="mt-4 p-3 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 font-medium">
-                  {importStatus}
+          <div className="grid md:grid-cols-3 gap-6">
+            {/* 1. Shared Playlist Link / Code */}
+            <div className="bg-zinc-900 border border-green-500/30 p-6 rounded-2xl flex flex-col justify-between relative overflow-hidden shadow-lg">
+              <div className="absolute top-0 right-0 w-28 h-28 bg-green-500/10 rounded-full blur-2xl pointer-events-none" />
+              <div>
+                <div className="w-12 h-12 bg-green-500/20 text-green-400 rounded-2xl flex items-center justify-center mb-4 shadow">
+                  <Share2 size={24} />
                 </div>
-              )}
+                <h3 className="text-lg font-bold text-white mb-1 flex items-center gap-1.5">
+                  <span>Shared Playlist</span>
+                  <Sparkles size={14} className="text-green-400" />
+                </h3>
+                <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
+                  Enter a share link or code (e.g. <span className="text-zinc-300 font-mono">pl_xyz123</span>) to import it to this device.
+                </p>
+              </div>
+              
+              <div>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="Paste link or share code..." 
+                    className="flex-1 bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-green-500 font-mono"
+                    value={shareInputUrl}
+                    onChange={e => setShareInputUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSharedPlaylistImport()}
+                  />
+                  <button 
+                    onClick={() => handleSharedPlaylistImport()}
+                    disabled={isImportingShare || !shareInputUrl.trim()}
+                    className="bg-green-500 text-black font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-green-400 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                  >
+                    {isImportingShare ? 'Syncing...' : 'Get'}
+                  </button>
+                </div>
+
+                {shareStatus && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 font-medium">
+                    {shareStatus}
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl relative overflow-hidden group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-              <div className="w-16 h-16 bg-green-500/20 text-green-500 rounded-full flex items-center justify-center mb-6">
-                <Folder size={32} />
+            {/* 2. Spotify / Apple Music Importer */}
+            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl flex flex-col justify-between">
+              <div>
+                <div className="w-12 h-12 bg-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mb-4 shadow">
+                  <LinkIcon size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1">Spotify Playlist</h3>
+                <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
+                  Paste any Spotify playlist link to resolve full-length songs.
+                </p>
               </div>
-              <h3 className="text-xl font-bold text-white mb-2">Local Files</h3>
-              <p className="text-zinc-400 font-medium relative z-10">Select MP3/WAV files from your device.</p>
               
-              <div className="absolute inset-0 border-2 border-dashed border-zinc-700 rounded-2xl group-hover:border-green-500 group-hover:bg-green-500/5 transition-colors z-0 pointer-events-none"></div>
+              <div>
+                <div className="flex gap-2">
+                  <input 
+                    type="text" 
+                    placeholder="https://open.spotify.com/..." 
+                    className="flex-1 bg-black border border-zinc-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-green-500"
+                    value={spotifyUrl}
+                    onChange={e => setSpotifyUrl(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSpotifyImport()}
+                  />
+                  <button 
+                    onClick={handleSpotifyImport}
+                    disabled={isImporting || !spotifyUrl.trim()}
+                    className="bg-blue-500 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-blue-400 transition-colors disabled:opacity-50 flex items-center gap-1 cursor-pointer"
+                  >
+                    {isImporting ? 'Loading...' : 'Import'}
+                  </button>
+                </div>
+
+                {importStatus && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 font-medium">
+                    {importStatus}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Local Audio Files */}
+            <div 
+              className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl flex flex-col justify-between relative overflow-hidden group cursor-pointer hover:border-zinc-700 transition-colors" 
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div>
+                <div className="w-12 h-12 bg-purple-500/20 text-purple-400 rounded-2xl flex items-center justify-center mb-4 shadow">
+                  <Folder size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1">Local Files</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Select audio files from your computer or phone to play instantly.
+                </p>
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-zinc-800 flex items-center justify-between text-xs text-zinc-400 group-hover:text-white">
+                <span className="font-semibold">Browse audio files</span>
+                <span className="text-purple-400 font-bold">&rarr;</span>
+              </div>
               
               <input 
                 type="file" 
