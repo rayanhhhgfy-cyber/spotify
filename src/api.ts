@@ -57,20 +57,26 @@ export const formatAudiusSong = (r: any): Song => {
 
 export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration: number } | null> => {
   const query = `${title} ${artist}`.trim();
+  if (!query) return null;
+
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
       const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
       if (!res.ok) continue;
       const data = await res.json();
       if (data && Array.isArray(data.data) && data.data.length > 0) {
-        const fullTrack = data.data.find((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id) || data.data[0];
+        const fullTrack = data.data.find((r: any) =>
+          (r.stream?.url || r.stream_url || r.is_streamable || r.id) &&
+          ((r.duration || 0) > 60)
+        ) || data.data[0];
+
         if (fullTrack) {
           const formatted = formatAudiusSong(fullTrack);
           if (formatted.audioUrl) {
             return {
               audioUrl: formatted.audioUrl,
               mirrors: formatted.streamMirrors,
-              duration: formatted.duration
+              duration: formatted.duration > 30000 ? formatted.duration : 180000
             };
           }
         }
@@ -104,7 +110,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  // 2. Search iTunes catalog for metadata & resolve full-length streams for every track
+  // 2. Search iTunes catalog for metadata & resolve exact track full-length streams
   try {
     const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
     if (res.ok) {
@@ -112,27 +118,22 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
       if (data && Array.isArray(data.results)) {
         const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
           const song = formatITunesSong(r);
-          // Check if we already have a full Audius stream for this track
+          // Check if we already have an exact Audius stream for this track title
           const matchingAudius = results.find(s =>
-            s.title.toLowerCase().includes(song.title.toLowerCase()) ||
-            song.title.toLowerCase().includes(s.title.toLowerCase())
+            s.title.toLowerCase() === song.title.toLowerCase() ||
+            s.title.toLowerCase().includes(song.title.toLowerCase())
           );
           if (matchingAudius) {
             song.audioUrl = matchingAudius.audioUrl;
             song.streamMirrors = matchingAudius.streamMirrors;
             song.duration = matchingAudius.duration;
           } else {
-            // Resolve full length audio stream dynamically
+            // Attempt exact stream resolution
             const fullStream = await resolveFullLengthStream(song.title, song.artist);
             if (fullStream) {
               song.audioUrl = fullStream.audioUrl;
               song.streamMirrors = fullStream.mirrors;
               song.duration = fullStream.duration;
-            } else if (results.length > 0) {
-              // Fallback to available full-length stream
-              song.audioUrl = results[0].audioUrl;
-              song.streamMirrors = results[0].streamMirrors;
-              song.duration = results[0].duration;
             }
           }
           return song;
@@ -144,19 +145,14 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     console.warn("iTunes Search error:", e);
   }
 
-  // Filter out any isolated 30-second preview links so only full-length streams are served
-  const fullLengthSongs = results.filter(s => !s.audioUrl.includes('apple.com') && !s.audioUrl.includes('mzstatic'));
-
   // Deduplicate results by title+artist
   const seen = new Set<string>();
-  const finalResults = (fullLengthSongs.length > 0 ? fullLengthSongs : results).filter(s => {
+  return results.filter(s => {
     const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-
-  return finalResults;
 };
 
 export const getSavedSongs = (): Song[] => {
