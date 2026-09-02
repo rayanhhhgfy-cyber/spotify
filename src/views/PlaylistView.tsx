@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from 'react';
 import { getPlaylists, deletePlaylist, removeSongFromPlaylist, renamePlaylist, reorderPlaylistSongs } from '../api';
 import { Playlist, Song } from '../types';
-import { Music, Trash2, Edit2, GripVertical, Play, Shuffle } from 'lucide-react';
+import { Music, Trash2, Edit2, GripVertical, Play, Shuffle, AlertTriangle } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 interface PlaylistViewProps {
   playlistId: string;
+  onViewChange?: (view: string) => void;
 }
 
-export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
+export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewChange }) => {
   const [playlist, setPlaylist] = useState<Playlist | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [newName, setNewName] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const { playSong, shufflePlay } = usePlayer();
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
@@ -27,12 +29,31 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
       }
     };
     load();
+    const handleUpdate = () => load();
+    window.addEventListener('playlists-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
     const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('playlists-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+    };
   }, [playlistId, isEditing]);
 
   if (!playlist) {
-    return <div className="px-6 py-20 text-center text-zinc-400">Playlist not found</div>;
+    return (
+      <div className="px-6 py-20 text-center text-zinc-400">
+        <p className="text-xl font-bold mb-4">Playlist not found</p>
+        {onViewChange && (
+          <button 
+            onClick={() => onViewChange('library')} 
+            className="px-6 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-medium transition-colors"
+          >
+            Go to Library
+          </button>
+        )}
+      </div>
+    );
   }
 
   const handleRename = () => {
@@ -40,6 +61,14 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
       renamePlaylist(playlist.id, newName.trim());
       setPlaylist({...playlist, name: newName.trim()});
       setIsEditing(false);
+    }
+  };
+
+  const handleConfirmDeletePlaylist = () => {
+    deletePlaylist(playlist.id);
+    setShowDeleteModal(false);
+    if (onViewChange) {
+      onViewChange('library');
     }
   };
 
@@ -109,25 +138,36 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
             <span>{playlist.songs.length} songs</span>
           </p>
 
-          {playlist.songs.length > 0 && (
-            <div className="flex items-center justify-center md:justify-start space-x-4 mt-6">
-              <button
-                onClick={() => playSong(playlist.songs[0], playlist.songs)}
-                className="w-14 h-14 rounded-full bg-green-500 text-black flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
-                title="Play playlist"
-              >
-                <Play size={26} className="fill-current ml-1" />
-              </button>
-              <button
-                onClick={() => shufflePlay(playlist.songs)}
-                className="flex items-center space-x-2 px-6 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700"
-                title="Shuffle playlist"
-              >
-                <Shuffle size={20} className="text-green-500" />
-                <span>Shuffle</span>
-              </button>
-            </div>
-          )}
+          <div className="flex items-center justify-center md:justify-start space-x-4 mt-6">
+            {playlist.songs.length > 0 && (
+              <>
+                <button
+                  onClick={() => playSong(playlist.songs[0], playlist.songs)}
+                  className="w-14 h-14 rounded-full bg-green-500 text-black flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+                  title="Play playlist"
+                >
+                  <Play size={26} className="fill-current ml-1" />
+                </button>
+                <button
+                  onClick={() => shufflePlay(playlist.songs)}
+                  className="flex items-center space-x-2 px-6 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700"
+                  title="Shuffle playlist"
+                >
+                  <Shuffle size={20} className="text-green-500" />
+                  <span>Shuffle</span>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="flex items-center space-x-2 px-4 py-3 rounded-full bg-zinc-900/80 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 font-medium hover:scale-105 transition-all shadow-md border border-zinc-800 hover:border-red-800/60"
+              title="Delete Playlist"
+            >
+              <Trash2 size={18} />
+              <span className="text-sm">Delete</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -170,6 +210,39 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId }) => {
             </div>
          )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setShowDeleteModal(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-white space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center space-x-3 text-red-500">
+              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
+                <AlertTriangle size={22} />
+              </div>
+              <h3 className="text-xl font-bold text-white">Delete Playlist</h3>
+            </div>
+            
+            <p className="text-zinc-400 text-sm">
+              Are you sure you want to delete <span className="text-white font-bold">"{playlist.name}"</span>? This action cannot be undone.
+            </p>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeletePlaylist}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white font-bold transition-colors shadow-lg shadow-red-900/30"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

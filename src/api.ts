@@ -255,6 +255,12 @@ export const getPlaylists = (): Playlist[] => {
   }
 };
 
+const notifyPlaylistsChanged = () => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('playlists-updated'));
+  }
+};
+
 export const createPlaylist = (name: string): Playlist => {
   const playlists = getPlaylists();
   const newPlaylist: Playlist = {
@@ -264,6 +270,7 @@ export const createPlaylist = (name: string): Playlist => {
   };
   playlists.push(newPlaylist);
   localStorage.setItem('playlists', JSON.stringify(playlists));
+  notifyPlaylistsChanged();
   return newPlaylist;
 };
 
@@ -275,6 +282,7 @@ export const addSongToPlaylist = (playlistId: string, song: Song) => {
       playlist.songs.push(song);
       localStorage.setItem('playlists', JSON.stringify(playlists));
       downloadSong(song);
+      notifyPlaylistsChanged();
     }
   }
 };
@@ -285,7 +293,35 @@ export const removeSongFromPlaylist = (playlistId: string, songId: string) => {
   if (playlist) {
     playlist.songs = playlist.songs.filter(s => s.id !== songId);
     localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
   }
+};
+
+export const renamePlaylist = (playlistId: string, newName: string) => {
+  const playlists = getPlaylists();
+  const playlist = playlists.find(p => p.id === playlistId);
+  if (playlist) {
+    playlist.name = newName;
+    localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
+  }
+};
+
+export const reorderPlaylistSongs = (playlistId: string, songs: Song[]) => {
+  const playlists = getPlaylists();
+  const playlist = playlists.find(p => p.id === playlistId);
+  if (playlist) {
+    playlist.songs = songs;
+    localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
+  }
+};
+
+export const deletePlaylist = (playlistId: string) => {
+  let playlists = getPlaylists();
+  playlists = playlists.filter(p => p.id !== playlistId);
+  localStorage.setItem('playlists', JSON.stringify(playlists));
+  notifyPlaylistsChanged();
 };
 
 export const getTrendingSongs = async (): Promise<Song[]> => {
@@ -325,122 +361,71 @@ export const getTrendingSongs = async (): Promise<Song[]> => {
   return songs;
 };
 
-export const renamePlaylist = (playlistId: string, newName: string) => {
-  const playlists = getPlaylists();
-  const playlist = playlists.find(p => p.id === playlistId);
-  if (playlist) {
-    playlist.name = newName;
-    localStorage.setItem('playlists', JSON.stringify(playlists));
-  }
-};
+export const importSpotifyPlaylist = async (url: string): Promise<{ name: string; songs: Song[] }> => {
+  if (!url || !url.trim()) return { name: 'Imported Playlist', songs: [] };
 
-export const reorderPlaylistSongs = (playlistId: string, songs: Song[]) => {
-  const playlists = getPlaylists();
-  const playlist = playlists.find(p => p.id === playlistId);
-  if (playlist) {
-    playlist.songs = songs;
-    localStorage.setItem('playlists', JSON.stringify(playlists));
+  try {
+    const res = await fetch('/api/import-playlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim() })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.songs) && data.songs.length > 0) {
+        return {
+          name: data.name || 'Imported Playlist',
+          songs: data.songs
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Backend playlist import error:', e);
   }
+
+  // Fallback search if server is unreachable
+  const cleanTerm = url.replace(/^https?:\/\/[^\/]+\//, '').replace(/[\/\?_\-]/g, ' ').trim();
+  const fallbackResults = await searchSongs(cleanTerm || 'Top Chart Hits');
+  return {
+    name: cleanTerm ? `Import: ${cleanTerm}` : 'Imported Playlist',
+    songs: fallbackResults.slice(0, 15)
+  };
 };
 
 export const recordPlay = (song: Song) => {
+  if (!song || !song.id) return;
   try {
-    const stats = JSON.parse(localStorage.getItem('listening_stats') || '{}');
-    if (!stats[song.id]) {
-      stats[song.id] = { song, count: 0, totalMs: 0 };
+    const raw = localStorage.getItem('listening_stats') || '[]';
+    const stats: Array<{ song: Song; count: number; lastPlayed: number }> = JSON.parse(raw);
+    const existingIndex = stats.findIndex(s => s.song.id === song.id);
+    if (existingIndex >= 0) {
+      stats[existingIndex].count += 1;
+      stats[existingIndex].lastPlayed = Date.now();
+    } else {
+      stats.push({ song, count: 1, lastPlayed: Date.now() });
     }
-    stats[song.id].count += 1;
-    stats[song.id].totalMs += song.duration;
     localStorage.setItem('listening_stats', JSON.stringify(stats));
-  } catch (e) {}
+  } catch (e) {
+    console.error('Error recording play:', e);
+  }
 };
 
-export const getListeningStats = () => {
+export const getListeningStats = (): Array<{ song: Song; count: number; lastPlayed: number }> => {
   try {
-    const stats = JSON.parse(localStorage.getItem('listening_stats') || '{}');
-    return Object.values(stats).sort((a: any, b: any) => b.count - a.count);
-  } catch (e) {
+    const raw = localStorage.getItem('listening_stats') || '[]';
+    return JSON.parse(raw).sort((a: any, b: any) => b.count - a.count);
+  } catch {
     return [];
   }
 };
 
 export const getDownloadedSongs = async (): Promise<Song[]> => {
   try {
-    const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
-    if (downloaded.length > 0) return downloaded;
-  } catch (e) {}
-  return getSavedSongs();
-};
-
-export const importSpotifyPlaylist = async (url: string): Promise<Song[]> => {
-  if (!url || !url.trim()) return [];
-
-  const songs: Song[] = [];
-
-  try {
-    // Extract Spotify playlist or track ID
-    const match = url.match(/(playlist|album|track)\/([a-zA-Z0-9]+)/);
-    if (match) {
-      const type = match[1];
-      const id = match[2];
-      const embedUrl = `https://open.spotify.com/embed/${type}/${id}`;
-
-      const res = await fetch(embedUrl);
-      if (res.ok) {
-        const html = await res.text();
-        const scriptMatch = html.match(/<script id=\"__NEXT_DATA__\" type=\"application\/json\">([^<]+)<\/script>/);
-        if (scriptMatch) {
-          const data = JSON.parse(scriptMatch[1]);
-          const entity = data.props?.pageProps?.state?.data?.entity;
-
-          if (entity && Array.isArray(entity.trackList) && entity.trackList.length > 0) {
-            // Process all tracks extracted from the Spotify playlist embed
-            const trackPromises = entity.trackList.slice(0, 30).map(async (t: any) => {
-              const trackTitle = t.title || t.name || '';
-              const trackArtist = t.subtitle || t.artists?.[0]?.name || '';
-              if (trackTitle) {
-                const searchResults = await searchSongs(`${trackTitle} ${trackArtist}`.trim());
-                if (searchResults.length > 0) {
-                  return searchResults[0];
-                }
-              }
-              return null;
-            });
-
-            const resolvedTracks = await Promise.all(trackPromises);
-            songs.push(...resolvedTracks.filter((s): s is Song => s !== null));
-            if (songs.length > 0) {
-              return songs;
-            }
-          }
-        }
-      }
-    }
-
-    // oEmbed Fallback for single track/playlist links
-    const oembedRes = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url.trim())}`);
-    if (oembedRes.ok) {
-      const data = await oembedRes.json();
-      const title = data.title || '';
-      const author = data.author_name || '';
-      const query = `${title} ${author}`.trim();
-      const results = await searchSongs(query);
-      if (results.length > 0) {
-        return results;
-      }
-    }
-  } catch (e) {
-    console.warn("Spotify import error:", e);
+    const raw = localStorage.getItem('downloaded_songs') || '[]';
+    return JSON.parse(raw);
+  } catch {
+    return [];
   }
-
-  // Fallback term search
-  const cleanTerm = url.replace(/^https?:\/\/[^\/]+\//, '').replace(/[\/\?_\-]/g, ' ').trim();
-  const fallbackResults = await searchSongs(cleanTerm || "Top Chart Hits");
-  return fallbackResults.slice(0, 10);
 };
 
-export const deletePlaylist = (playlistId: string) => {
-  let playlists = getPlaylists();
-  playlists = playlists.filter(p => p.id !== playlistId);
-  localStorage.setItem('playlists', JSON.stringify(playlists));
-};

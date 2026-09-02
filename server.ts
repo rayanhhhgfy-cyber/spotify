@@ -151,6 +151,142 @@ app.get('/api/trending', async (req, res) => {
   }
 });
 
+// 4. Spotify & Playlist import endpoint
+app.post('/api/import-playlist', async (req, res) => {
+  const url = (req.body.url as string || '').trim();
+  if (!url) {
+    return res.status(400).json({ error: 'Missing playlist URL', songs: [] });
+  }
+
+  try {
+    // 1. Spotify URL parsing (playlist, album, track, artist, user playlist)
+    const spotifyMatch = url.match(/(playlist|album|track|artist)\/([a-zA-Z0-9]+)/);
+    if (spotifyMatch) {
+      const type = spotifyMatch[1];
+      const id = spotifyMatch[2];
+
+      const embedRes = await fetch(`https://open.spotify.com/embed/${type}/${id}`, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+      });
+
+      if (embedRes.ok) {
+        const html = await embedRes.text();
+        const scriptMatch = html.match(/<script id=\"__NEXT_DATA__\"[^>]*>([^<]+)<\/script>/);
+        if (scriptMatch) {
+          const data = JSON.parse(scriptMatch[1]);
+          const entity = data.props?.pageProps?.state?.data?.entity;
+          if (entity) {
+            const playlistName = entity.name || entity.title || 'Spotify Playlist';
+            const rawTracks: any[] = entity.trackList || [];
+
+            if (rawTracks.length > 0) {
+              // Resolve up to 40 tracks in small parallel batches
+              const selectedTracks = rawTracks.slice(0, 40);
+              const resolvedSongs: any[] = [];
+              const batchSize = 6;
+
+              for (let i = 0; i < selectedTracks.length; i += batchSize) {
+                const batch = selectedTracks.slice(i, i + batchSize);
+                const batchResults = await Promise.all(
+                  batch.map(async (t: any) => {
+                    const cleanTitle = (t.title || t.name || '').trim();
+                    const cleanArtist = (t.subtitle || t.artists?.[0]?.name || '').trim();
+                    if (!cleanTitle) return null;
+
+                    try {
+                      const ytRes = await ytSearch(`${cleanTitle} ${cleanArtist}`);
+                      if (ytRes.videos && ytRes.videos.length > 0) {
+                        const top = ytRes.videos[0];
+                        return {
+                          id: `yt-${top.videoId}`,
+                          title: cleanTitle,
+                          artist: cleanArtist || top.author?.name || 'Unknown Artist',
+                          album: playlistName,
+                          coverUrl: top.thumbnail || `https://i.ytimg.com/vi/${top.videoId}/hqdefault.jpg`,
+                          audioUrl: '',
+                          duration: (top.seconds || 180) * 1000,
+                          youtubeId: top.videoId,
+                          isFullLength: true,
+                        };
+                      }
+                    } catch (e) {}
+                    return null;
+                  })
+                );
+                resolvedSongs.push(...batchResults.filter(Boolean));
+              }
+
+              if (resolvedSongs.length > 0) {
+                return res.json({
+                  success: true,
+                  name: playlistName,
+                  songs: resolvedSongs
+                });
+              }
+            } else if (entity.title || entity.name) {
+              // Single track / item
+              const q = `${entity.title || entity.name} ${entity.subtitle || ''}`.trim();
+              const ytRes = await ytSearch(q);
+              if (ytRes.videos && ytRes.videos.length > 0) {
+                const top = ytRes.videos[0];
+                return res.json({
+                  success: true,
+                  name: entity.title || entity.name,
+                  songs: [{
+                    id: `yt-${top.videoId}`,
+                    title: entity.title || entity.name,
+                    artist: entity.subtitle || top.author?.name || 'Unknown Artist',
+                    album: 'Single',
+                    coverUrl: top.thumbnail || `https://i.ytimg.com/vi/${top.videoId}/hqdefault.jpg`,
+                    audioUrl: '',
+                    duration: (top.seconds || 180) * 1000,
+                    youtubeId: top.videoId,
+                    isFullLength: true,
+                  }]
+                });
+              }
+            }
+          }
+        }
+      }
+
+      // Fallback: oEmbed
+      try {
+        const oembedRes = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`);
+        if (oembedRes.ok) {
+          const odata = await oembedRes.json();
+          const plTitle = odata.title || 'Spotify Playlist';
+          const ytRes = await ytSearch(plTitle);
+          if (ytRes.videos && ytRes.videos.length > 0) {
+            const songs = ytRes.videos.slice(0, 15).map(formatYtVideo);
+            return res.json({ success: true, name: plTitle, songs });
+          }
+        }
+      } catch (e) {}
+    }
+
+    // 2. Generic Search / Apple Music / YouTube URL or keyword search
+    const cleanQuery = url
+      .replace(/^https?:\/\/[^\/]+\//, '')
+      .replace(/[\/\?_\-=&]/g, ' ')
+      .replace(/playlist|album|track/gi, '')
+      .trim();
+
+    const ytRes = await ytSearch(cleanQuery || 'Top Songs');
+    const songs = (ytRes.videos || []).slice(0, 15).map(formatYtVideo);
+    return res.json({
+      success: true,
+      name: cleanQuery ? `Import: ${cleanQuery}` : 'Imported Playlist',
+      songs
+    });
+  } catch (error: any) {
+    console.error('Import error:', error);
+    return res.status(500).json({ error: error.message, songs: [] });
+  }
+});
+
 // Vite middleware & Static serving
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {

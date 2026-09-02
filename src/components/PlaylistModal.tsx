@@ -13,7 +13,10 @@ export const PlaylistModal: React.FC<PlaylistModalProps> = ({ song, onClose }) =
   const [newPlaylistName, setNewPlaylistName] = useState('');
 
   useEffect(() => {
-    setPlaylists(getPlaylists());
+    const load = () => setPlaylists(getPlaylists());
+    load();
+    window.addEventListener('playlists-updated', load);
+    return () => window.removeEventListener('playlists-updated', load);
   }, []);
 
   const handleCreate = (e: React.FormEvent) => {

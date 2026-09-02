@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Home, Search, Library, Plus, Compass, Download } from 'lucide-react';
-import { getPlaylists, createPlaylist } from '../api';
+import { Home, Search, Library, Plus, Compass, Download, Trash2 } from 'lucide-react';
+import { getPlaylists, createPlaylist, deletePlaylist } from '../api';
 import { Playlist } from '../types';
 import { motion } from 'motion/react';
 
@@ -17,8 +17,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
   useEffect(() => {
     const load = () => setPlaylists(getPlaylists());
     load();
+    const handleUpdate = () => load();
+    window.addEventListener('playlists-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
     const interval = setInterval(load, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('playlists-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -105,21 +112,42 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
               <Plus size={16} />
            </button>
         </div>
-        <div className="space-y-3 text-sm text-zinc-400 font-medium">
+        <div className="space-y-1 text-sm text-zinc-400 font-medium">
             <p 
               onClick={() => onViewChange('library')} 
-              className={`cursor-pointer transition-colors ${currentView === 'library' ? 'text-green-500' : 'hover:text-white'}`}
+              className={`cursor-pointer transition-colors py-1.5 px-2 rounded-lg ${currentView === 'library' ? 'text-green-500 bg-zinc-900/60 font-bold' : 'hover:text-white hover:bg-zinc-900/40'}`}
             >
               Liked Songs
             </p>
             {playlists.map(p => (
-              <p 
+              <div 
                 key={p.id}
+                className={`group flex items-center justify-between py-1.5 px-2 rounded-lg transition-colors cursor-pointer ${
+                  currentView === `playlist:${p.id}` 
+                    ? 'text-white bg-zinc-900/80 font-bold' 
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-900/40'
+                }`}
                 onClick={() => onViewChange(`playlist:${p.id}`)}
-                className={`cursor-pointer transition-colors truncate ${currentView === `playlist:${p.id}` ? 'text-white font-bold' : 'hover:text-white'}`}
               >
-                {p.name}
-              </p>
+                <span className="truncate flex-1 pr-2">
+                  {p.name}
+                </span>
+                <button 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Delete playlist "${p.name}"?`)) {
+                      deletePlaylist(p.id);
+                      if (currentView === `playlist:${p.id}`) {
+                        onViewChange('library');
+                      }
+                    }
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-400 p-1 rounded transition-all"
+                  title="Delete playlist"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             ))}
         </div>
       </div>

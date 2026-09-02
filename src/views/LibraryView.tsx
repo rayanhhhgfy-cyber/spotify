@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, addSongToPlaylist, createPlaylist, getPlaylists } from '../api';
+import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, addSongToPlaylist, createPlaylist, getPlaylists, deletePlaylist } from '../api';
 import { Song, Playlist } from '../types';
 import { TrackList } from '../components/TrackList';
-import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic } from 'lucide-react';
+import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic, Trash2 } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 type Tab = 'playlists' | 'liked' | 'stats' | 'downloads' | 'local';
@@ -19,6 +19,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   const [activeTab, setActiveTab] = useState<Tab>('playlists');
   const [spotifyUrl, setSpotifyUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { playSong } = usePlayer();
@@ -31,23 +32,39 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
       setPlaylists(getPlaylists());
     };
     loadSongs();
+    const handleUpdate = () => loadSongs();
+    window.addEventListener('playlists-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
     const interval = setInterval(loadSongs, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      window.removeEventListener('playlists-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleSpotifyImport = async () => {
-    if (!spotifyUrl) return;
+    if (!spotifyUrl.trim()) return;
     setIsImporting(true);
+    setImportStatus('Extracting track metadata & resolving songs...');
     try {
-      const imported = await importSpotifyPlaylist(spotifyUrl);
-      if (imported.length > 0) {
-        const p = createPlaylist("Imported Playlist");
-        imported.forEach(s => addSongToPlaylist(p.id, s));
+      const result = await importSpotifyPlaylist(spotifyUrl.trim());
+      if (result && result.songs && result.songs.length > 0) {
+        const p = createPlaylist(result.name || "Imported Playlist");
+        result.songs.forEach(s => addSongToPlaylist(p.id, s));
+        setPlaylists(getPlaylists());
         setSpotifyUrl('');
-        
+        setImportStatus(`Successfully imported "${result.name}" with ${result.songs.length} tracks!`);
+        setTimeout(() => {
+          setImportStatus(null);
+          onViewChange(`playlist:${p.id}`);
+        }, 1200);
+      } else {
+        setImportStatus('No matching songs found from this link. Try another playlist URL.');
       }
-    } catch (e) {
-      
+    } catch (e: any) {
+      console.error('Spotify import error:', e);
+      setImportStatus('Failed to import playlist. Please verify the URL.');
     }
     setIsImporting(false);
   };
@@ -72,8 +89,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
       addSongToPlaylist(p.id, song);
     });
     
-    
+    setPlaylists(getPlaylists());
     if (fileInputRef.current) fileInputRef.current.value = '';
+    onViewChange(`playlist:${p.id}`);
   };
 
   return (
@@ -111,7 +129,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
                 setPlaylists(getPlaylists());
                 onViewChange(`playlist:${p.id}`);
               }}
-              className="bg-white text-black p-4 rounded-full hover:scale-105 transition-transform"
+              className="bg-white text-black p-4 rounded-full hover:scale-105 transition-transform shadow-lg"
+              title="Create new playlist"
             >
               <Plus size={24} className="fill-current" />
             </button>
@@ -123,14 +142,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
                 <div 
                   key={p.id} 
                   onClick={() => onViewChange(`playlist:${p.id}`)}
-                  className="bg-zinc-900/50 hover:bg-zinc-800 transition-colors p-4 rounded-xl cursor-pointer group"
+                  className="relative bg-zinc-900/50 hover:bg-zinc-800 transition-all p-4 rounded-xl cursor-pointer group border border-zinc-800/40 hover:border-zinc-700 shadow-md"
                 >
-                  <div className="w-full aspect-square bg-zinc-800 rounded-md mb-4 flex items-center justify-center overflow-hidden shadow-md">
+                  <div className="w-full aspect-square bg-zinc-800 rounded-md mb-4 flex items-center justify-center overflow-hidden shadow-md relative">
                     {p.songs.length > 0 ? (
                       <img src={p.songs[0].coverUrl} alt="Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                     ) : (
                       <Music size={32} className="text-zinc-600" />
                     )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm(`Delete playlist "${p.name}"?`)) {
+                          deletePlaylist(p.id);
+                        }
+                      }}
+                      className="absolute top-2 right-2 p-2 rounded-full bg-black/70 hover:bg-red-600 text-zinc-300 hover:text-white opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm shadow-md"
+                      title="Delete Playlist"
+                    >
+                      <Trash2 size={16} />
+                    </button>
                   </div>
                   <h3 className="text-white font-bold truncate">{p.name}</h3>
                   <p className="text-sm text-zinc-400">{p.songs.length} songs</p>
@@ -240,20 +271,27 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
               
               <div className="flex gap-2">
                 <input 
-                  type="text"
+                  type="text" 
                   placeholder="https://open.spotify.com/playlist/..." 
                   className="flex-1 bg-black border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-green-500"
                   value={spotifyUrl}
                   onChange={e => setSpotifyUrl(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSpotifyImport()}
                 />
                 <button 
                   onClick={handleSpotifyImport}
-                  disabled={isImporting}
-                  className="bg-white text-black font-bold px-6 py-3 rounded-lg hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                  disabled={isImporting || !spotifyUrl.trim()}
+                  className="bg-green-500 text-black font-bold px-6 py-3 rounded-lg hover:bg-green-400 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  {isImporting ? '...' : 'Import'}
+                  {isImporting ? 'Importing...' : 'Import'}
                 </button>
               </div>
+
+              {importStatus && (
+                <div className="mt-4 p-3 rounded-lg bg-zinc-800 border border-zinc-700 text-xs text-zinc-300 font-medium">
+                  {importStatus}
+                </div>
+              )}
             </div>
 
             <div className="bg-zinc-900 border border-zinc-800 p-8 rounded-2xl relative overflow-hidden group cursor-pointer" onClick={() => fileInputRef.current?.click()}>

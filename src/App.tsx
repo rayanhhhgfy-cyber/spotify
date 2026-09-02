@@ -34,7 +34,12 @@ export default function App() {
               {currentView === 'library' && <LibraryView onViewChange={setCurrentView} />}
               {currentView === 'discover' && <DiscoverView />}
               {currentView === 'queue' && <QueueView />}
-              {currentView.startsWith('playlist:') && <PlaylistView playlistId={currentView.split(':')[1]} />}
+              {currentView.startsWith('playlist:') && (
+                <PlaylistView 
+                  playlistId={currentView.split(':')[1]} 
+                  onViewChange={setCurrentView} 
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </main>
