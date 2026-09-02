@@ -159,7 +159,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           }
         } catch (e) {}
       }
-    }, 250);
+    }, 100);
 
     return () => clearInterval(interval);
   }, [activeEngine, isPlaying]);

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Heart, ListPlus, Clock } from 'lucide-react';
+import { ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Heart, ListPlus, Clock, SlidersHorizontal, RotateCcw, Plus, Minus } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { isSongSaved, toggleSaveSong } from '../api';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface ExpandedPlayerProps {
   onClose: () => void;
@@ -21,14 +21,36 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
   const [lyrics, setLyrics] = useState<LyricLine[] | string | null>(null);
   const [loadingLyrics, setLoadingLyrics] = useState(false);
   const [showSleepTimer, setShowSleepTimer] = useState(false);
+  const [showSyncControls, setShowSyncControls] = useState(false);
+  const [lyricsOffset, setLyricsOffset] = useState<number>(0);
   const lyricsContainerRef = useRef<HTMLDivElement>(null);
 
+  // Load song saved status and song-specific lyrics timing offset
   useEffect(() => {
     if (currentSong) {
       setIsSaved(isSongSaved(currentSong.id));
+      
+      // Load saved sync offset for this song or global default
+      const savedSongOffset = localStorage.getItem(`spotify_lyrics_offset_${currentSong.id}`);
+      if (savedSongOffset !== null) {
+        setLyricsOffset(parseFloat(savedSongOffset) || 0);
+      } else {
+        const globalOffset = localStorage.getItem('spotify_lyrics_global_offset');
+        setLyricsOffset(globalOffset !== null ? parseFloat(globalOffset) || 0 : 0);
+      }
+
       fetchLyrics(currentSong.artist, currentSong.title);
     }
   }, [currentSong]);
+
+  const updateOffset = (newOffset: number) => {
+    const rounded = Math.round(newOffset * 10) / 10;
+    setLyricsOffset(rounded);
+    if (currentSong) {
+      localStorage.setItem(`spotify_lyrics_offset_${currentSong.id}`, rounded.toString());
+      localStorage.setItem('spotify_lyrics_global_offset', rounded.toString());
+    }
+  };
 
   const fetchLyrics = async (artist: string, title: string) => {
     setLoadingLyrics(true);
@@ -128,12 +150,15 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
+  // Calculate effective progress for synchronized lyrics
+  const effectiveProgress = progress - lyricsOffset;
+
   // Auto-scroll synced lyrics cleanly without smooth scroll collisions
   useEffect(() => {
     if (Array.isArray(lyrics) && lyricsContainerRef.current) {
       const activeLineIndex = lyrics.findIndex((line, i) => {
         const nextLine = lyrics[i + 1];
-        return progress >= line.time - 0.2 && (!nextLine || progress < nextLine.time - 0.2);
+        return effectiveProgress >= line.time && (!nextLine || effectiveProgress < nextLine.time);
       });
       
       if (activeLineIndex !== -1) {
@@ -145,7 +170,7 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
         }
       }
     }
-  }, [progress, lyrics]);
+  }, [effectiveProgress, lyrics]);
 
   if (!currentSong) return null;
 
@@ -273,11 +298,98 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
           </motion.button>
         </div>
 
-        {/* Lyrics Section */}
+        {/* Lyrics Section with Sync Timing Calibration */}
         <div className="mt-4 bg-zinc-800/80 rounded-2xl p-6 relative min-h-[400px] overflow-hidden flex flex-col">
-          <h3 className="text-lg font-bold text-white mb-4 flex items-center">
-            Lyrics
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              Lyrics
+              {Array.isArray(lyrics) && (
+                <span className="text-[11px] font-medium text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                  Synced
+                </span>
+              )}
+            </h3>
+
+            {Array.isArray(lyrics) && (
+              <button
+                onClick={() => setShowSyncControls(!showSyncControls)}
+                className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${
+                  showSyncControls || lyricsOffset !== 0
+                    ? 'bg-green-500 text-black'
+                    : 'bg-zinc-700/80 text-zinc-300 hover:text-white hover:bg-zinc-700'
+                }`}
+                title="Adjust lyric timing"
+              >
+                <SlidersHorizontal size={13} />
+                <span>
+                  {lyricsOffset === 0 ? 'Sync timing' : `${lyricsOffset > 0 ? `+${lyricsOffset.toFixed(1)}s` : `${lyricsOffset.toFixed(1)}s`}`}
+                </span>
+              </button>
+            )}
+          </div>
+
+          {/* Sync Calibration Panel */}
+          <AnimatePresence>
+            {showSyncControls && Array.isArray(lyrics) && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 bg-zinc-900/90 rounded-xl p-3 border border-zinc-700/60 overflow-hidden"
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-zinc-300 font-medium">
+                    Lyrics delay: <b className="text-white">{lyricsOffset > 0 ? `+${lyricsOffset.toFixed(1)}s` : `${lyricsOffset.toFixed(1)}s`}</b>
+                  </span>
+                  <button
+                    onClick={() => updateOffset(0)}
+                    className="flex items-center gap-1 text-[11px] text-zinc-400 hover:text-white px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700"
+                  >
+                    <RotateCcw size={11} /> Reset
+                  </button>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="grid grid-cols-5 gap-1.5 mb-2.5">
+                  {[-0.5, 0, 0.5, 1.0, 1.5].map((val) => (
+                    <button
+                      key={val}
+                      onClick={() => updateOffset(val)}
+                      className={`py-1 text-xs font-bold rounded transition-colors ${
+                        Math.abs(lyricsOffset - val) < 0.05
+                          ? 'bg-green-500 text-black'
+                          : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white'
+                      }`}
+                    >
+                      {val === 0 ? '0.0s' : val > 0 ? `+${val}s` : `${val}s`}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Fine-Tuning Step Controls */}
+                <div className="flex items-center justify-between text-xs text-zinc-400 pt-1 border-t border-zinc-800">
+                  <span>Fine tune (0.1s):</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => updateOffset(lyricsOffset - 0.1)}
+                      className="p-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center"
+                      title="Step Earlier (-0.1s)"
+                    >
+                      <Minus size={13} />
+                    </button>
+                    <button
+                      onClick={() => updateOffset(lyricsOffset + 0.1)}
+                      className="p-1 bg-zinc-800 hover:bg-zinc-700 text-white rounded flex items-center justify-center"
+                      title="Step Later (+0.1s)"
+                    >
+                      <Plus size={13} />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {loadingLyrics ? (
             <div className="flex justify-center items-center h-32 flex-1">
               <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
@@ -286,12 +398,12 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
             <div ref={lyricsContainerRef} className="flex-1 overflow-y-auto space-y-4 pb-20 mask-image-fade scroll-smooth">
                {lyrics.map((line, i) => {
                   const nextLine = lyrics[i + 1];
-                  const isActive = progress >= line.time - 0.2 && (!nextLine || progress < nextLine.time - 0.2);
-                  const isPassed = progress > line.time - 0.2 && !isActive;
+                  const isActive = effectiveProgress >= line.time && (!nextLine || effectiveProgress < nextLine.time);
+                  const isPassed = effectiveProgress > line.time && !isActive;
                   return (
                      <p 
                         key={i} 
-                        onClick={() => seek(line.time)}
+                        onClick={() => seek(Math.max(0, line.time + lyricsOffset))}
                         className={`text-2xl font-bold transition-all duration-300 cursor-pointer hover:text-white select-none ${isActive ? 'text-white scale-105 origin-left' : isPassed ? 'text-zinc-500' : 'text-zinc-600'}`}
                      >
                         {line.text}

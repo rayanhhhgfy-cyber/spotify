@@ -165,23 +165,20 @@ app.get('/api/resolve', async (req, res) => {
 // 3. Trending endpoint: returns curated trending songs (Arabic & Global top tracks in full length)
 app.get('/api/trending', async (req, res) => {
   try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string || '20', 10), 10), 100);
     const trendingQueries = [
-      'راشد الماجد',
-      'عمرو دياب',
-      'The Weeknd',
-      'عبدالمجيد عبدالله',
-      'Dua Lipa',
-      'Taylor Swift',
-      'أصالة',
-      'Drake',
-      'ماجد المهندس',
-      'Billie Eilish'
+      'The Weeknd', 'Taylor Swift', 'Drake', 'Billie Eilish', 'Dua Lipa', 'Bruno Mars',
+      'راشد الماجد', 'عمرو دياب', 'عبدالمجيد عبدالله', 'ماجد المهندس', 'أصالة', 'محمد عبده',
+      'Travis Scott', 'Kendrick Lamar', 'Ariana Grande', 'Post Malone', 'Harry Styles',
+      'Ed Sheeran', 'Justin Bieber', 'Eminem', 'SZA', 'Olivia Rodrigo', 'Doja Cat',
+      'Bad Bunny', 'BTS', 'BLACKPINK', 'NewJeans', 'Jung Kook', 'Coldplay', 'Imagine Dragons'
     ];
 
-    const randomQueries = [...trendingQueries].sort(() => Math.random() - 0.5).slice(0, 6);
+    const countQueries = Math.ceil(limit / 3);
+    const randomQueries = [...trendingQueries].sort(() => Math.random() - 0.5).slice(0, countQueries);
     
     const results = await Promise.all(
-      randomQueries.map(q => ytSearch(q).then(r => (r.videos || []).slice(0, 3).map(formatYtVideo)).catch(() => []))
+      randomQueries.map(q => ytSearch(q).then(r => (r.videos || []).slice(0, 4).map(formatYtVideo)).catch(() => []))
     );
 
     const flat = results.flat();
