@@ -179,20 +179,20 @@ app.post('/api/import-playlist', async (req, res) => {
           const entity = data.props?.pageProps?.state?.data?.entity;
           if (entity) {
             const playlistName = entity.name || entity.title || 'Spotify Playlist';
-            const rawTracks: any[] = entity.trackList || [];
+            const rawTracks: any[] = entity.trackList || entity.tracks?.items || entity.tracks || [];
 
             if (rawTracks.length > 0) {
-              // Resolve up to 40 tracks in small parallel batches
-              const selectedTracks = rawTracks.slice(0, 40);
+              // Import all playlist tracks (up to 200 tracks)
+              const selectedTracks = rawTracks.slice(0, 200);
               const resolvedSongs: any[] = [];
-              const batchSize = 6;
+              const batchSize = 10;
 
               for (let i = 0; i < selectedTracks.length; i += batchSize) {
                 const batch = selectedTracks.slice(i, i + batchSize);
                 const batchResults = await Promise.all(
                   batch.map(async (t: any) => {
                     const cleanTitle = (t.title || t.name || '').trim();
-                    const cleanArtist = (t.subtitle || t.artists?.[0]?.name || '').trim();
+                    const cleanArtist = (t.subtitle || t.artists?.[0]?.name || t.artist || '').trim();
                     if (!cleanTitle) return null;
 
                     try {
@@ -212,7 +212,18 @@ app.post('/api/import-playlist', async (req, res) => {
                         };
                       }
                     } catch (e) {}
-                    return null;
+
+                    // Fallback track object if search misses
+                    return {
+                      id: `sp-${t.id || Math.random().toString(36).substring(2, 9)}`,
+                      title: cleanTitle,
+                      artist: cleanArtist || 'Unknown Artist',
+                      album: playlistName,
+                      coverUrl: t.album?.images?.[0]?.url || 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300',
+                      audioUrl: t.audioUrl || t.preview_url || '',
+                      duration: t.duration || 180000,
+                      isFullLength: false,
+                    };
                   })
                 );
                 resolvedSongs.push(...batchResults.filter(Boolean));
