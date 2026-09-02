@@ -7,6 +7,8 @@ export interface Song {
   audioUrl: string;
   streamMirrors?: string[];
   duration: number; // in milliseconds
+  youtubeId?: string;
+  isFullLength?: boolean;
 }
 
 export interface Playlist {

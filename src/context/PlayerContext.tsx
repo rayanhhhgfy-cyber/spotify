@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Song } from '../types';
-import { recordPlay } from '../api';
+import { recordPlay, resolveFullLengthStream } from '../api';
 
 interface PlayerContextType {
   currentSong: Song | null;
@@ -34,29 +34,135 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [volume, setVolumeState] = useState(1);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('off');
+  const [activeEngine, setActiveEngine] = useState<'youtube' | 'audio'>('audio');
+
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const ytPlayerRef = useRef<any>(null);
+  const ytReadyRef = useRef<boolean>(false);
+  const playPromiseRef = useRef<Promise<void> | void>();
+  const currentSongRef = useRef<Song | null>(null);
+  const currentMirrorIndexRef = useRef<number>(0);
+  const repeatModeRef = useRef<'off' | 'all' | 'one'>('off');
+
+  useEffect(() => {
+    repeatModeRef.current = repeatMode;
+  }, [repeatMode]);
+
+  useEffect(() => {
+    currentSongRef.current = currentSong;
+  }, [currentSong]);
+
+  // Keep track of latest functions for MediaSession, events, and shortcuts
+  const handlersRef = useRef({
+    togglePlay: () => {},
+    nextSong: () => {},
+    prevSong: () => {},
+    seek: (_t: number) => {}
+  });
+
+  // Initialize YouTube IFrame API
+  useEffect(() => {
+    const initYT = () => {
+      if ((window as any).YT && (window as any).YT.Player) {
+        if (!ytPlayerRef.current) {
+          try {
+            ytPlayerRef.current = new (window as any).YT.Player('yt-audio-player', {
+              height: '1',
+              width: '1',
+              playerVars: {
+                autoplay: 0,
+                controls: 0,
+                disablekb: 1,
+                fs: 0,
+                rel: 0,
+                playsinline: 1
+              },
+              events: {
+                onReady: () => {
+                  ytReadyRef.current = true;
+                  if (ytPlayerRef.current?.setVolume) {
+                    ytPlayerRef.current.setVolume(volume * 100);
+                  }
+                },
+                onStateChange: (event: any) => {
+                  // event.data: 0 = ENDED, 1 = PLAYING, 2 = PAUSED, 3 = BUFFERING
+                  if (event.data === 1) {
+                    setIsPlaying(true);
+                  } else if (event.data === 2) {
+                    setIsPlaying(false);
+                  } else if (event.data === 0) {
+                    if (repeatModeRef.current === 'one') {
+                      ytPlayerRef.current.seekTo(0, true);
+                      ytPlayerRef.current.playVideo();
+                    } else {
+                      handlersRef.current.nextSong();
+                    }
+                  }
+                },
+                onError: (err: any) => {
+                  console.warn('YouTube Player Error, advancing track:', err);
+                  handlersRef.current.nextSong();
+                }
+              }
+            });
+          } catch (e) {
+            console.warn('Failed to init YT player:', e);
+          }
+        }
+      }
+    };
+
+    if ((window as any).YT && (window as any).YT.Player) {
+      initYT();
+    } else {
+      (window as any).onYouTubeIframeAPIReady = initYT;
+    }
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-      switch(e.code) {
+      switch (e.code) {
         case 'Space':
           e.preventDefault();
           handlersRef.current.togglePlay();
           break;
         case 'ArrowRight':
           if (e.shiftKey) handlersRef.current.nextSong();
-          else if (audioRef.current) handlersRef.current.seek(audioRef.current.currentTime + 10);
+          else handlersRef.current.seek(progress + 10);
           break;
         case 'ArrowLeft':
           if (e.shiftKey) handlersRef.current.prevSong();
-          else if (audioRef.current) handlersRef.current.seek(Math.max(0, audioRef.current.currentTime - 10));
+          else handlersRef.current.seek(Math.max(0, progress - 10));
           break;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [progress]);
+
+  // High-precision playback progress polling for YouTube Engine
+  useEffect(() => {
+    if (activeEngine !== 'youtube' || !isPlaying) return;
+
+    const interval = setInterval(() => {
+      if (ytPlayerRef.current && ytPlayerRef.current.getCurrentTime) {
+        try {
+          const cur = ytPlayerRef.current.getCurrentTime();
+          const dur = ytPlayerRef.current.getDuration();
+          if (typeof cur === 'number' && !isNaN(cur)) {
+            setProgress(cur);
+          }
+          if (typeof dur === 'number' && !isNaN(dur) && dur > 0) {
+            setDuration(dur);
+          }
+        } catch (e) {}
+      }
+    }, 250);
+
+    return () => clearInterval(interval);
+  }, [activeEngine, isPlaying]);
 
   const reorderQueue = (startIndex: number, endIndex: number) => {
     setQueue(prev => {
@@ -66,24 +172,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       return result;
     });
   };
-  const [audioReadyForId, setAudioReadyForId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const playPromiseRef = useRef<Promise<void> | void>();
-  const currentSongRef = useRef<Song | null>(null);
-  const currentMirrorIndexRef = useRef<number>(0);
-  
-  // Keep track of latest functions for MediaSession and handlers
-  const handlersRef = useRef({ togglePlay: () => {}, nextSong: () => {}, prevSong: () => {}, seek: (t: number) => {} });
-
-  useEffect(() => {
-    currentSongRef.current = currentSong;
-  }, [currentSong]);
 
   const handleAudioError = () => {
     if (!currentSongRef.current || !audioRef.current) return;
     const song = currentSongRef.current;
     const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : [song.audioUrl];
-    
+
     if (currentMirrorIndexRef.current + 1 < candidates.length) {
       currentMirrorIndexRef.current += 1;
       const nextUrl = candidates[currentMirrorIndexRef.current];
@@ -94,8 +188,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
     }
-    
-    // If all mirrors fail, advance to next track in queue smoothly
+
     console.warn(`All stream sources for "${song.title}" were unavailable. Skipping to next song.`);
     handlersRef.current.nextSong();
   };
@@ -111,40 +204,99 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             setIsPlaying(false);
             return;
           }
-          if (e.name === 'AbortError') {
-            return;
-          }
+          if (e.name === 'AbortError') return;
           if (e.name === 'NotSupportedError') {
             handleAudioError();
             return;
           }
-          console.warn("Playback warning:", e.message || e);
+          console.warn('Playback warning:', e.message || e);
         });
       }
     } catch (e) {
-      console.warn("Sync play error:", e);
+      console.warn('Sync play error:', e);
+    }
+  };
+
+  const startPlayback = async (song: Song) => {
+    recordPlay(song);
+    setCurrentSong(song);
+    currentSongRef.current = song;
+    currentMirrorIndexRef.current = 0;
+    setProgress(0);
+    setDuration(song.duration ? song.duration / 1000 : 200);
+
+    // If song does not have youtubeId and is an iTunes 30s preview or missing audioUrl, resolve full song
+    let targetSong = { ...song };
+    if (!targetSong.youtubeId && (!targetSong.audioUrl || targetSong.id.startsWith('itunes-') || targetSong.duration <= 30000)) {
+      const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist);
+      if (resolved) {
+        if (resolved.youtubeId) targetSong.youtubeId = resolved.youtubeId;
+        if (resolved.audioUrl) {
+          targetSong.audioUrl = resolved.audioUrl;
+          targetSong.streamMirrors = resolved.mirrors;
+        }
+        if (resolved.duration) {
+          targetSong.duration = resolved.duration;
+          setDuration(resolved.duration / 1000);
+        }
+        targetSong.isFullLength = true;
+        setCurrentSong(targetSong);
+        currentSongRef.current = targetSong;
+      }
+    }
+
+    if (targetSong.youtubeId) {
+      // Use YouTube Engine
+      setActiveEngine('youtube');
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(true);
+
+      const playYT = () => {
+        if (ytPlayerRef.current && ytPlayerRef.current.loadVideoById) {
+          try {
+            ytPlayerRef.current.loadVideoById(targetSong.youtubeId);
+            ytPlayerRef.current.playVideo();
+            if (ytPlayerRef.current.setVolume) {
+              ytPlayerRef.current.setVolume(volume * 100);
+            }
+          } catch (e) {
+            console.warn('Error loading YT video:', e);
+          }
+        }
+      };
+
+      if (ytReadyRef.current && ytPlayerRef.current) {
+        playYT();
+      } else {
+        setTimeout(playYT, 400);
+      }
+    } else {
+      // Use Standard Audio Engine
+      setActiveEngine('audio');
+      if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch (e) {}
+      }
+      setIsPlaying(true);
+      if (audioRef.current) {
+        const candidates = targetSong.streamMirrors && targetSong.streamMirrors.length > 0 ? targetSong.streamMirrors : [targetSong.audioUrl];
+        audioRef.current.src = candidates[0] || '';
+        audioRef.current.load();
+        safePlay();
+      }
     }
   };
 
   const playSong = (song: Song, newQueue: Song[] = []) => {
-    recordPlay(song);
     if (newQueue.length > 0) {
       setQueue(newQueue);
     } else if (queue.length === 0) {
       setQueue([song]);
     }
-    
-    setCurrentSong(song);
-    currentSongRef.current = song;
-    currentMirrorIndexRef.current = 0;
-    setIsPlaying(true);
-    
-    if (audioRef.current) {
-      const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : [song.audioUrl];
-      audioRef.current.src = candidates[0];
-      audioRef.current.load();
-      safePlay();
-    }
+    startPlayback(song);
   };
 
   const shufflePlay = (songs: Song[]) => {
@@ -152,53 +304,46 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const shuffled = [...songs].sort(() => Math.random() - 0.5);
     setIsShuffle(true);
     setQueue(shuffled);
-
-    const firstSong = shuffled[0];
-    recordPlay(firstSong);
-    setCurrentSong(firstSong);
-    currentSongRef.current = firstSong;
-    currentMirrorIndexRef.current = 0;
-    setIsPlaying(true);
-
-    if (audioRef.current) {
-      const candidates = firstSong.streamMirrors && firstSong.streamMirrors.length > 0 ? firstSong.streamMirrors : [firstSong.audioUrl];
-      audioRef.current.src = candidates[0];
-      audioRef.current.load();
-      safePlay();
-    }
+    startPlayback(shuffled[0]);
   };
 
   const _playDirectly = (song: Song) => {
-    recordPlay(song);
-    setCurrentSong(song);
-    currentSongRef.current = song;
-    currentMirrorIndexRef.current = 0;
-    setIsPlaying(true);
-    if (audioRef.current) {
-      const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : [song.audioUrl];
-      audioRef.current.src = candidates[0];
-      audioRef.current.load();
-      safePlay();
-    }
+    startPlayback(song);
   };
 
   const togglePlay = () => {
-    if (!currentSong || !audioRef.current) return;
-    
+    if (!currentSong) return;
+
     if (isPlaying) {
       setIsPlaying(false);
-      if (playPromiseRef.current !== undefined) {
-        playPromiseRef.current.then(() => {
-          audioRef.current?.pause();
-        }).catch(() => {
-          audioRef.current?.pause();
-        });
+      if (activeEngine === 'youtube') {
+        if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
+          try {
+            ytPlayerRef.current.pauseVideo();
+          } catch (e) {}
+        }
       } else {
-        audioRef.current.pause();
+        if (playPromiseRef.current !== undefined) {
+          playPromiseRef.current.then(() => {
+            audioRef.current?.pause();
+          }).catch(() => {
+            audioRef.current?.pause();
+          });
+        } else {
+          audioRef.current?.pause();
+        }
       }
     } else {
       setIsPlaying(true);
-      safePlay();
+      if (activeEngine === 'youtube') {
+        if (ytPlayerRef.current && ytPlayerRef.current.playVideo) {
+          try {
+            ytPlayerRef.current.playVideo();
+          } catch (e) {}
+        }
+      } else {
+        safePlay();
+      }
     }
   };
 
@@ -206,10 +351,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
     }
+    if (ytPlayerRef.current && ytPlayerRef.current.setVolume) {
+      try {
+        ytPlayerRef.current.setVolume(volume * 100);
+      } catch (e) {}
+    }
   }, [volume]);
 
   const toggleShuffle = () => setIsShuffle(!isShuffle);
-  
+
   const toggleRepeat = () => {
     setRepeatMode(prev => {
       if (prev === 'off') return 'all';
@@ -218,10 +368,74 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     });
   };
 
+  const nextSong = () => {
+    if (!currentSongRef.current || queue.length === 0) return;
+
+    if (repeatModeRef.current === 'one') {
+      if (activeEngine === 'youtube' && ytPlayerRef.current) {
+        ytPlayerRef.current.seekTo(0, true);
+        ytPlayerRef.current.playVideo();
+      } else if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(e => console.error(e));
+      }
+      return;
+    }
+
+    const idx = queue.findIndex(s => s.id === currentSongRef.current?.id);
+
+    if (isShuffle) {
+      const nextIdx = Math.floor(Math.random() * queue.length);
+      _playDirectly(queue[nextIdx]);
+      return;
+    }
+
+    if (idx !== -1 && idx < queue.length - 1) {
+      _playDirectly(queue[idx + 1]);
+    } else if (repeatModeRef.current === 'all') {
+      _playDirectly(queue[0]);
+    } else {
+      setIsPlaying(false);
+      setProgress(0);
+    }
+  };
+
+  const prevSong = () => {
+    if (!currentSongRef.current || queue.length === 0) return;
+    const idx = queue.findIndex(s => s.id === currentSongRef.current?.id);
+    if (progress > 3) {
+      seek(0);
+    } else if (idx > 0) {
+      _playDirectly(queue[idx - 1]);
+    }
+  };
+
+  const seek = (time: number) => {
+    const clampedTime = Math.max(0, Math.min(time, duration || 9999));
+    setProgress(clampedTime);
+    if (activeEngine === 'youtube') {
+      if (ytPlayerRef.current && ytPlayerRef.current.seekTo) {
+        try {
+          ytPlayerRef.current.seekTo(clampedTime, true);
+        } catch (e) {}
+      }
+    } else {
+      if (audioRef.current) {
+        audioRef.current.currentTime = clampedTime;
+      }
+    }
+  };
+
+  const setVolume = (vol: number) => {
+    const clamped = Math.max(0, Math.min(1, vol));
+    setVolumeState(clamped);
+  };
+
   useEffect(() => {
     handlersRef.current = { togglePlay, nextSong, prevSong, seek };
   });
 
+  // MediaSession lockscreen / notification center support
   useEffect(() => {
     if ('mediaSession' in navigator && currentSong) {
       try {
@@ -230,75 +444,31 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           artist: currentSong.artist,
           album: currentSong.album,
           artwork: [
-            { src: currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg', sizes: '300x300', type: 'image/jpeg' },
-            { src: (currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg').replace('300x300', '600x600'), sizes: '600x600', type: 'image/jpeg' }
+            {
+              src: currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg',
+              sizes: '300x300',
+              type: 'image/jpeg'
+            },
+            {
+              src: (currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg').replace('300x300', '600x600'),
+              sizes: '600x600',
+              type: 'image/jpeg'
+            }
           ]
         });
-        
+
         navigator.mediaSession.setActionHandler('play', () => handlersRef.current.togglePlay());
         navigator.mediaSession.setActionHandler('pause', () => handlersRef.current.togglePlay());
         navigator.mediaSession.setActionHandler('previoustrack', () => handlersRef.current.prevSong());
         navigator.mediaSession.setActionHandler('nexttrack', () => handlersRef.current.nextSong());
-        navigator.mediaSession.setActionHandler('seekto', (details) => {
+        navigator.mediaSession.setActionHandler('seekto', details => {
           if (details.seekTime !== undefined) handlersRef.current.seek(details.seekTime);
         });
       } catch (e) {
-        console.warn("Media session actions not supported", e);
+        console.warn('Media session actions not supported', e);
       }
     }
   }, [currentSong]);
-
-  const nextSong = () => {
-     if (!currentSong || queue.length === 0) return;
-     
-     if (repeatMode === 'one') {
-       if (audioRef.current) {
-         audioRef.current.currentTime = 0;
-         audioRef.current.play().catch(e => console.error(e));
-       }
-       return;
-     }
-
-     let idx = queue.findIndex(s => s.id === currentSong.id);
-     
-     if (isShuffle) {
-        const nextIdx = Math.floor(Math.random() * queue.length);
-        _playDirectly(queue[nextIdx]);
-        return;
-     }
-
-     if (idx !== -1 && idx < queue.length - 1) {
-        _playDirectly(queue[idx + 1]);
-     } else if (repeatMode === 'all') {
-        _playDirectly(queue[0]);
-     } else {
-        // End of queue
-        setIsPlaying(false);
-        setProgress(0);
-     }
-  };
-
-  const prevSong = () => {
-     if (!currentSong || queue.length === 0) return;
-     const idx = queue.findIndex(s => s.id === currentSong.id);
-     if (progress > 3) {
-        // Seek to start if played for more than 3 seconds
-        if (audioRef.current) audioRef.current.currentTime = 0;
-     } else if (idx > 0) {
-        _playDirectly(queue[idx - 1]);
-     }
-  };
-
-  const seek = (time: number) => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = time;
-      setProgress(time);
-    }
-  };
-
-  const setVolume = (vol: number) => {
-    setVolumeState(Math.max(0, Math.min(1, vol)));
-  };
 
   return (
     <PlayerContext.Provider
@@ -324,13 +494,50 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }}
     >
       {children}
+      {/* Hidden YouTube IFrame Player Container for full track audio playback */}
+      <div
+        id="yt-audio-player-container"
+        style={{
+          position: 'fixed',
+          top: -9999,
+          left: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0,
+          pointerEvents: 'none'
+        }}
+      >
+        <div id="yt-audio-player"></div>
+      </div>
+
+      {/* HTML5 Audio Element for direct stream fallback and local audio */}
       <audio
         ref={audioRef}
-        onTimeUpdate={(e) => setProgress(e.currentTarget.currentTime)}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-        onEnded={nextSong}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onTimeUpdate={e => {
+          if (activeEngine === 'audio') {
+            setProgress(e.currentTarget.currentTime);
+          }
+        }}
+        onLoadedMetadata={e => {
+          if (activeEngine === 'audio') {
+            setDuration(e.currentTarget.duration);
+          }
+        }}
+        onEnded={() => {
+          if (activeEngine === 'audio') {
+            nextSong();
+          }
+        }}
+        onPlay={() => {
+          if (activeEngine === 'audio') {
+            setIsPlaying(true);
+          }
+        }}
+        onPause={() => {
+          if (activeEngine === 'audio') {
+            setIsPlaying(false);
+          }
+        }}
         onError={handleAudioError}
       />
     </PlayerContext.Provider>

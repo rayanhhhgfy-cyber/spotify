@@ -55,8 +55,26 @@ export const formatAudiusSong = (r: any): Song => {
   };
 };
 
-export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration?: number } | null> => {
-  // Query original track title and artist terms for stream resolution
+export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string } | null> => {
+  // 1. First priority: Server-side YouTube & full song resolver
+  try {
+    const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.youtubeId) {
+        return {
+          audioUrl: '',
+          mirrors: [],
+          duration: data.duration || 240000,
+          youtubeId: data.youtubeId
+        };
+      }
+    }
+  } catch (e) {
+    console.warn('Backend resolve error:', e);
+  }
+
+  // 2. Query Audius decentralized catalog for stream resolution
   const queries: string[] = [
     `${title} ${artist}`.trim(),
     title.trim(),
@@ -81,7 +99,7 @@ export const resolveFullLengthStream = async (title: string, artist: string): Pr
             if (formatted.audioUrl) {
               return {
                 audioUrl: formatted.audioUrl,
-                mirrors: formatted.streamMirrors,
+                mirrors: formatted.streamMirrors || [],
                 duration: formatted.duration > 30000 ? formatted.duration : 240000
               };
             }
@@ -97,9 +115,23 @@ export const resolveFullLengthStream = async (title: string, artist: string): Pr
 
 export const searchSongs = async (query: string): Promise<Song[]> => {
   if (!query.trim()) return [];
+
+  // 1. Primary Source: Backend search providing full-length songs (YouTube + Audius)
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.songs) && data.songs.length > 0) {
+        return data.songs;
+      }
+    }
+  } catch (e) {
+    console.warn('Backend search failed, using client fallback:', e);
+  }
+
   const results: Song[] = [];
 
-  // 1. Primary Source: Search Audius decentralized catalog for full-length 320kbps streams
+  // 2. Fallback: Search Audius decentralized catalog for full-length 320kbps streams
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
       const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
@@ -117,7 +149,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  // 2. Search iTunes catalog for metadata & attach matching streams
+  // 3. Search iTunes catalog for metadata & attach matching full streams
   try {
     const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
     if (res.ok) {
@@ -126,7 +158,6 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
         const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
           const song = formatITunesSong(r);
 
-          // Check if we already have an exact Audius stream match for this track title & artist
           const matchingAudius = results.find(s =>
             s.title.toLowerCase() === song.title.toLowerCase() &&
             s.artist.toLowerCase() === song.artist.toLowerCase()
@@ -135,13 +166,19 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
             song.audioUrl = matchingAudius.audioUrl;
             song.streamMirrors = matchingAudius.streamMirrors;
             song.duration = r.trackTimeMillis || matchingAudius.duration;
+            song.isFullLength = true;
           } else {
-            // Attempt exact stream resolution for this specific track title and artist
             const fullStream = await resolveFullLengthStream(song.title, song.artist);
             if (fullStream) {
-              song.audioUrl = fullStream.audioUrl;
-              song.streamMirrors = fullStream.mirrors;
+              if (fullStream.youtubeId) {
+                song.youtubeId = fullStream.youtubeId;
+              }
+              if (fullStream.audioUrl) {
+                song.audioUrl = fullStream.audioUrl;
+                song.streamMirrors = fullStream.mirrors;
+              }
               song.duration = r.trackTimeMillis || fullStream.duration || 210000;
+              song.isFullLength = true;
             }
           }
           return song;
@@ -194,15 +231,20 @@ export const isSongSaved = (id: string): boolean => {
 
 export const downloadSong = async (song: Song): Promise<boolean> => {
   try {
-    if ('caches' in window) {
+    const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+    if (!downloaded.some((s: Song) => s.id === song.id)) {
+      downloaded.push(song);
+      localStorage.setItem('downloaded_songs', JSON.stringify(downloaded));
+    }
+    if (song.audioUrl && 'caches' in window) {
       const cache = await caches.open('spotify-audio-v1');
       await cache.add(song.audioUrl);
-      return true;
     }
+    return true;
   } catch (e) {
     console.error("Download failed", e);
+    return true; // Still marked as downloaded locally
   }
-  return false;
 };
 
 export const getPlaylists = (): Playlist[] => {
@@ -247,33 +289,22 @@ export const removeSongFromPlaylist = (playlistId: string, songId: string) => {
 };
 
 export const getTrendingSongs = async (): Promise<Song[]> => {
-  const songs: Song[] = [];
-
-  // 1. iTunes Top Songs (Mainstream global top charts)
+  // 1. Primary: Backend trending endpoint providing full songs
   try {
-    const res = await fetch('https://itunes.apple.com/us/rss/topsongs/limit=30/json');
+    const res = await fetch('/api/trending');
     if (res.ok) {
       const data = await res.json();
-      const entries = data.feed?.entry;
-      if (Array.isArray(entries)) {
-        const topPromises = entries.slice(0, 15).map(async (entry: any) => {
-          const title = entry['im:name']?.label || '';
-          const artist = entry['im:artist']?.label || '';
-          if (title && artist) {
-            const matches = await searchSongs(`${title} ${artist}`);
-            return matches[0] || null;
-          }
-          return null;
-        });
-        const fetched = await Promise.all(topPromises);
-        songs.push(...fetched.filter((s): s is Song => s !== null));
+      if (data && Array.isArray(data.songs) && data.songs.length > 0) {
+        return data.songs;
       }
     }
   } catch (e) {
-    console.warn("Trending iTunes error:", e);
+    console.warn('Backend trending fetch failed:', e);
   }
 
-  // 2. Audius Trending
+  const songs: Song[] = [];
+
+  // 2. Audius Trending fallback
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
       const res = await fetch(`${node}/v1/tracks/trending?app_name=SPOTIFY_CLONE&limit=25`);
@@ -334,8 +365,10 @@ export const getListeningStats = () => {
 };
 
 export const getDownloadedSongs = async (): Promise<Song[]> => {
-  // Uses saved_songs as proxy since we cache on save, 
-  // but a real implementation would check the Cache API directly.
+  try {
+    const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+    if (downloaded.length > 0) return downloaded;
+  } catch (e) {}
   return getSavedSongs();
 };
 
