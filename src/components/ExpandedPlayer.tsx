@@ -128,18 +128,20 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
   
-  // Auto-scroll synced lyrics
+  // Auto-scroll synced lyrics cleanly without smooth scroll collisions
   useEffect(() => {
     if (Array.isArray(lyrics) && lyricsContainerRef.current) {
       const activeLineIndex = lyrics.findIndex((line, i) => {
         const nextLine = lyrics[i + 1];
-        return progress >= line.time && (!nextLine || progress < nextLine.time);
+        return progress >= line.time - 0.2 && (!nextLine || progress < nextLine.time - 0.2);
       });
       
       if (activeLineIndex !== -1) {
         const activeElement = lyricsContainerRef.current.children[activeLineIndex] as HTMLElement;
-        if (activeElement) {
-          activeElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (activeElement && lyricsContainerRef.current) {
+          const container = lyricsContainerRef.current;
+          const top = activeElement.offsetTop - container.offsetTop - container.clientHeight / 2 + activeElement.clientHeight / 2;
+          container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
         }
       }
     }
@@ -281,15 +283,16 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
               <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
             </div>
           ) : Array.isArray(lyrics) ? (
-            <div ref={lyricsContainerRef} className="flex-1 overflow-y-auto space-y-4 pb-20 mask-image-fade">
+            <div ref={lyricsContainerRef} className="flex-1 overflow-y-auto space-y-4 pb-20 mask-image-fade scroll-smooth">
                {lyrics.map((line, i) => {
                   const nextLine = lyrics[i + 1];
-                  const isActive = progress >= line.time && (!nextLine || progress < nextLine.time);
-                  const isPassed = progress > line.time && !isActive;
+                  const isActive = progress >= line.time - 0.2 && (!nextLine || progress < nextLine.time - 0.2);
+                  const isPassed = progress > line.time - 0.2 && !isActive;
                   return (
                      <p 
                         key={i} 
-                        className={`text-2xl font-bold transition-all duration-300 ${isActive ? 'text-white scale-105 origin-left' : isPassed ? 'text-zinc-500' : 'text-zinc-600'}`}
+                        onClick={() => seek(line.time)}
+                        className={`text-2xl font-bold transition-all duration-300 cursor-pointer hover:text-white select-none ${isActive ? 'text-white scale-105 origin-left' : isPassed ? 'text-zinc-500' : 'text-zinc-600'}`}
                      >
                         {line.text}
                      </p>
