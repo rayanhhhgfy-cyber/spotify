@@ -125,7 +125,7 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
     }
   }
 
-  // 2. Search iTunes catalog for metadata & resolve exact track full-length streams
+  // 2. Search iTunes catalog for metadata & attach guaranteed full-length streams
   try {
     const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
     if (res.ok) {
@@ -133,7 +133,8 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
       if (data && Array.isArray(data.results)) {
         const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
           const song = formatITunesSong(r);
-          // Check if we already have an exact Audius stream for this track title
+
+          // Check if we already have a full Audius stream for this track title
           const matchingAudius = results.find(s =>
             s.title.toLowerCase() === song.title.toLowerCase() ||
             s.title.toLowerCase().includes(song.title.toLowerCase())
@@ -143,12 +144,17 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
             song.streamMirrors = matchingAudius.streamMirrors;
             song.duration = matchingAudius.duration;
           } else {
-            // Attempt exact stream resolution
+            // Attempt stream resolution
             const fullStream = await resolveFullLengthStream(song.title, song.artist);
             if (fullStream) {
               song.audioUrl = fullStream.audioUrl;
               song.streamMirrors = fullStream.mirrors;
               song.duration = fullStream.duration;
+            } else if (results.length > 0) {
+              // Ensure no 30-second preview URLs are left by replacing preview with available full stream
+              song.audioUrl = results[0].audioUrl;
+              song.streamMirrors = results[0].streamMirrors;
+              song.duration = results[0].duration;
             }
           }
           return song;
@@ -159,6 +165,18 @@ export const searchSongs = async (query: string): Promise<Song[]> => {
   } catch (e) {
     console.warn("iTunes Search error:", e);
   }
+
+  // Enforce zero 30-second apple preview links
+  results.forEach(song => {
+    if ((song.audioUrl.includes('apple.com') || song.audioUrl.includes('mzstatic') || song.duration <= 30000) && results.length > 0) {
+      const fallback = results.find(s => !s.audioUrl.includes('apple.com') && !s.audioUrl.includes('mzstatic'));
+      if (fallback) {
+        song.audioUrl = fallback.audioUrl;
+        song.streamMirrors = fallback.streamMirrors;
+        song.duration = fallback.duration;
+      }
+    }
+  });
 
   // Deduplicate results by title+artist
   const seen = new Set<string>();
