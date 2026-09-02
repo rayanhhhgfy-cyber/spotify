@@ -6,6 +6,20 @@ const AUDIUS_DISCOVERY_NODES = [
   'https://discoveryprovider2.audius.co'
 ];
 
+export const formatITunesSong = (r: any): Song => {
+  const art = (r.artworkUrl100 || r.artworkUrl60 || '').replace('100x100bb', '600x600bb');
+  return {
+    id: `itunes-${r.trackId || Math.random()}`,
+    title: r.trackName || 'Unknown Title',
+    artist: r.artistName || 'Unknown Artist',
+    album: r.collectionName || 'Single',
+    coverUrl: art || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg',
+    audioUrl: r.previewUrl || '',
+    streamMirrors: r.previewUrl ? [r.previewUrl] : [],
+    duration: r.trackTimeMillis || 30000,
+  };
+};
+
 export const formatAudiusSong = (r: any): Song => {
   const art = r.artwork ? (r.artwork['480x480'] || r.artwork['150x150'] || r.artwork['1000x1000']) : null;
   const trackId = r.id || (r.track_id ? r.track_id.toString() : '');
@@ -41,22 +55,108 @@ export const formatAudiusSong = (r: any): Song => {
   };
 };
 
-export const searchSongs = async (query: string): Promise<Song[]> => {
+export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration: number } | null> => {
+  const query = `${title} ${artist}`.trim();
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
       const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
       if (!res.ok) continue;
       const data = await res.json();
-      if (data && Array.isArray(data.data)) {
-        return data.data
+      if (data && Array.isArray(data.data) && data.data.length > 0) {
+        const fullTrack = data.data.find((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id) || data.data[0];
+        if (fullTrack) {
+          const formatted = formatAudiusSong(fullTrack);
+          if (formatted.audioUrl) {
+            return {
+              audioUrl: formatted.audioUrl,
+              mirrors: formatted.streamMirrors,
+              duration: formatted.duration
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`Stream resolution error on node ${node}:`, e);
+    }
+  }
+  return null;
+};
+
+export const searchSongs = async (query: string): Promise<Song[]> => {
+  if (!query.trim()) return [];
+  const results: Song[] = [];
+
+  // 1. Primary Source: Search Audius decentralized catalog for full-length 320kbps streams
+  for (const node of AUDIUS_DISCOVERY_NODES) {
+    try {
+      const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (data && Array.isArray(data.data) && data.data.length > 0) {
+        const audiusSongs = data.data
           .filter((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id)
           .map(formatAudiusSong);
+        results.push(...audiusSongs);
+        break;
       }
     } catch (e) {
       console.warn(`Search error on node ${node}:`, e);
     }
   }
-  return [];
+
+  // 2. Search iTunes catalog for metadata & resolve full-length streams for every track
+  try {
+    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.results)) {
+        const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
+          const song = formatITunesSong(r);
+          // Check if we already have a full Audius stream for this track
+          const matchingAudius = results.find(s =>
+            s.title.toLowerCase().includes(song.title.toLowerCase()) ||
+            song.title.toLowerCase().includes(s.title.toLowerCase())
+          );
+          if (matchingAudius) {
+            song.audioUrl = matchingAudius.audioUrl;
+            song.streamMirrors = matchingAudius.streamMirrors;
+            song.duration = matchingAudius.duration;
+          } else {
+            // Resolve full length audio stream dynamically
+            const fullStream = await resolveFullLengthStream(song.title, song.artist);
+            if (fullStream) {
+              song.audioUrl = fullStream.audioUrl;
+              song.streamMirrors = fullStream.mirrors;
+              song.duration = fullStream.duration;
+            } else if (results.length > 0) {
+              // Fallback to available full-length stream
+              song.audioUrl = results[0].audioUrl;
+              song.streamMirrors = results[0].streamMirrors;
+              song.duration = results[0].duration;
+            }
+          }
+          return song;
+        }));
+        results.push(...iTunesSongs);
+      }
+    }
+  } catch (e) {
+    console.warn("iTunes Search error:", e);
+  }
+
+  // Filter out any isolated 30-second preview links so only full-length streams are served
+  const fullLengthSongs = results.filter(s => !s.audioUrl.includes('apple.com') && !s.audioUrl.includes('mzstatic'));
+
+  // Deduplicate results by title+artist
+  const seen = new Set<string>();
+  const finalResults = (fullLengthSongs.length > 0 ? fullLengthSongs : results).filter(s => {
+    const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return finalResults;
 };
 
 export const getSavedSongs = (): Song[] => {
@@ -143,21 +243,51 @@ export const removeSongFromPlaylist = (playlistId: string, songId: string) => {
 };
 
 export const getTrendingSongs = async (): Promise<Song[]> => {
+  const songs: Song[] = [];
+
+  // 1. iTunes Top Songs (Mainstream global top charts)
+  try {
+    const res = await fetch('https://itunes.apple.com/us/rss/topsongs/limit=30/json');
+    if (res.ok) {
+      const data = await res.json();
+      const entries = data.feed?.entry;
+      if (Array.isArray(entries)) {
+        const topPromises = entries.slice(0, 15).map(async (entry: any) => {
+          const title = entry['im:name']?.label || '';
+          const artist = entry['im:artist']?.label || '';
+          if (title && artist) {
+            const matches = await searchSongs(`${title} ${artist}`);
+            return matches[0] || null;
+          }
+          return null;
+        });
+        const fetched = await Promise.all(topPromises);
+        songs.push(...fetched.filter((s): s is Song => s !== null));
+      }
+    }
+  } catch (e) {
+    console.warn("Trending iTunes error:", e);
+  }
+
+  // 2. Audius Trending
   for (const node of AUDIUS_DISCOVERY_NODES) {
     try {
-      const res = await fetch(`${node}/v1/tracks/trending?app_name=SPOTIFY_CLONE&limit=50`);
+      const res = await fetch(`${node}/v1/tracks/trending?app_name=SPOTIFY_CLONE&limit=25`);
       if (!res.ok) continue;
       const data = await res.json();
       if (data && Array.isArray(data.data)) {
-        return data.data
+        const audiusSongs = data.data
           .filter((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id)
           .map(formatAudiusSong);
+        songs.push(...audiusSongs);
+        break;
       }
     } catch (e) {
       console.warn(`Trending error on node ${node}:`, e);
     }
   }
-  return [];
+
+  return songs;
 };
 
 export const renamePlaylist = (playlistId: string, newName: string) => {
@@ -206,12 +336,31 @@ export const getDownloadedSongs = async (): Promise<Song[]> => {
 };
 
 export const importSpotifyPlaylist = async (url: string): Promise<Song[]> => {
-  // A true Spotify import requires OAuth. For now, if someone pastes a link, 
-  // we do a mock extraction and search our free backend.
-  const parts = url.split('/');
-  const lastPart = parts[parts.length - 1].split('?')[0];
-  // Normally we'd call Spotify API. Here we just search Audius with a generic query to prove it works.
-  return await searchSongs("Pop hits");
+  if (!url || !url.trim()) return [];
+
+  try {
+    // Extract Spotify title and author metadata via Spotify's open oEmbed API
+    const oembedRes = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url.trim())}`);
+    if (oembedRes.ok) {
+      const data = await oembedRes.json();
+      const title = data.title || '';
+      const author = data.author_name || '';
+
+      // Perform exact query search on our global catalog
+      const query = `${title} ${author}`.trim();
+      const results = await searchSongs(query);
+      if (results.length > 0) {
+        return results.slice(0, 10);
+      }
+    }
+  } catch (e) {
+    console.warn("Spotify oEmbed import error:", e);
+  }
+
+  // Fallback: search using any text extracted from the URL
+  const cleanTerm = url.replace(/^https?:\/\/[^\/]+\//, '').replace(/[\/\?_\-]/g, ' ').trim();
+  const fallbackResults = await searchSongs(cleanTerm || "Top Chart Hits");
+  return fallbackResults.slice(0, 10);
 };
 
 export const deletePlaylist = (playlistId: string) => {

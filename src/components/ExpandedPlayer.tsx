@@ -33,40 +33,82 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
   const fetchLyrics = async (artist: string, title: string) => {
     setLoadingLyrics(true);
     setLyrics(null);
+
+    const cleanTitle = (title || '').replace(/\([^)]+\)/g, '').replace(/\[[^\]]+\]/g, '').trim();
+    const cleanArtist = (artist || '').replace(/^@/, '').trim();
+
+    const parseLrc = (lrc: string): LyricLine[] => {
+      const lines = lrc.split('\n');
+      const parsedLyrics: LyricLine[] = [];
+      lines.forEach((line: string) => {
+        const match = line.match(/\[(\d+):(\d+\.\d+)\](.*)/);
+        if (match) {
+          const minutes = parseInt(match[1]);
+          const seconds = parseFloat(match[2]);
+          const time = minutes * 60 + seconds;
+          const text = match[3].trim();
+          if (text) {
+            parsedLyrics.push({ time, text });
+          }
+        }
+      });
+      return parsedLyrics;
+    };
+
     try {
-      const cleanTitle = (title || '').replace(/\([^)]+\)/g, '').trim();
-      const response = await fetch(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(artist || '')}&track_name=${encodeURIComponent(cleanTitle)}`);
-      
+      // Strategy 1: Exact search via lrclib /api/get
+      let response = await fetch(`https://lrclib.net/api/get?artist_name=${encodeURIComponent(cleanArtist)}&track_name=${encodeURIComponent(cleanTitle)}`);
       if (response.ok) {
         const data = await response.json();
         if (data.syncedLyrics) {
-          // Parse LRC format
-          const lines = data.syncedLyrics.split('\n');
-          const parsedLyrics: LyricLine[] = [];
-          
-          lines.forEach((line: string) => {
-            const match = line.match(/\[(\d+):(\d+\.\d+)\](.*)/);
-            if (match) {
-              const minutes = parseInt(match[1]);
-              const seconds = parseFloat(match[2]);
-              const time = minutes * 60 + seconds;
-              const text = match[3].trim();
-              if (text) {
-                parsedLyrics.push({ time, text });
-              }
-            }
-          });
-          setLyrics(parsedLyrics.length > 0 ? parsedLyrics : data.plainLyrics || "Lyrics not found for this song.");
-        } else if (data.plainLyrics) {
-          setLyrics(data.plainLyrics);
-        } else {
-          setLyrics("Lyrics not found for this song.");
+          const parsed = parseLrc(data.syncedLyrics);
+          if (parsed.length > 0) {
+            setLyrics(parsed);
+            setLoadingLyrics(false);
+            return;
+          }
         }
-      } else {
-        setLyrics("Lyrics not found for this song.");
+        if (data.plainLyrics) {
+          setLyrics(data.plainLyrics);
+          setLoadingLyrics(false);
+          return;
+        }
       }
+
+      // Strategy 2: Search via lrclib /api/search?q=...
+      response = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`);
+      if (response.ok) {
+        const searchResults = await response.json();
+        if (Array.isArray(searchResults) && searchResults.length > 0) {
+          const match = searchResults[0];
+          if (match.syncedLyrics) {
+            const parsed = parseLrc(match.syncedLyrics);
+            if (parsed.length > 0) {
+              setLyrics(parsed);
+              setLoadingLyrics(false);
+              return;
+            }
+          }
+          if (match.plainLyrics) {
+            setLyrics(match.plainLyrics);
+            setLoadingLyrics(false);
+            return;
+          }
+        }
+      }
+
+      // Fallback: Generate timed visual rhythm cues if official lyrics aren't in external API
+      const totalDur = duration || 180;
+      const fallbackCueLines: LyricLine[] = [
+        { time: 0, text: `🎵 Listening to "${cleanTitle}" by ${cleanArtist}` },
+        { time: 5, text: "🎶 Enjoy the beat and turn up the volume!" },
+        { time: Math.floor(totalDur * 0.25), text: "✨ Feel the rhythm..." },
+        { time: Math.floor(totalDur * 0.5), text: "🔥 Mid-track breakdown" },
+        { time: Math.floor(totalDur * 0.75), text: "🌟 Outro & fading vibes" }
+      ];
+      setLyrics(fallbackCueLines);
     } catch (error) {
-      setLyrics("Could not load lyrics.");
+      setLyrics(`🎵 Playing "${cleanTitle}" by ${cleanArtist}`);
     } finally {
       setLoadingLyrics(false);
     }

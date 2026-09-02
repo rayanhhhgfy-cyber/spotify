@@ -50,7 +50,24 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
       }
       setDeferredPrompt(null);
     } else {
-      alert("To install as a PWA app, open your browser menu and choose 'Add to Home screen' or 'Install App'.");
+      // Trigger a direct file download of the PWA App Shortcut / WebManifest
+      const manifestData = {
+        name: "Spotify Clone PWA",
+        short_name: "SpotifyClone",
+        start_url: window.location.origin,
+        display: "standalone",
+        background_color: "#09090b",
+        theme_color: "#09090b"
+      };
+      const blob = new Blob([JSON.stringify(manifestData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'spotify-clone.webmanifest';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
   };
 
