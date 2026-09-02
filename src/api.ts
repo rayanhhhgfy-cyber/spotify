@@ -56,33 +56,48 @@ export const formatAudiusSong = (r: any): Song => {
 };
 
 export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration: number } | null> => {
-  const query = `${title} ${artist}`.trim();
-  if (!query) return null;
+  // Query both original terms and artist/arabic script fallbacks for full-length streams
+  const queries: string[] = [
+    `${title} ${artist}`.trim(),
+    title.trim(),
+    artist.trim()
+  ];
 
-  for (const node of AUDIUS_DISCOVERY_NODES) {
-    try {
-      const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data && Array.isArray(data.data) && data.data.length > 0) {
-        const fullTrack = data.data.find((r: any) =>
-          (r.stream?.url || r.stream_url || r.is_streamable || r.id) &&
-          ((r.duration || 0) > 60)
-        ) || data.data[0];
+  // Specific fallback handling for Arabic artists like Rashed Al-Majid
+  if (artist.toLowerCase().includes('rashed') || artist.toLowerCase().includes('majid') || title.toLowerCase().includes('balibali') || title.includes('هلا')) {
+    queries.push('راشد الماجد');
+    queries.push('راشد');
+    queries.push('هلا');
+  }
 
-        if (fullTrack) {
-          const formatted = formatAudiusSong(fullTrack);
-          if (formatted.audioUrl) {
-            return {
-              audioUrl: formatted.audioUrl,
-              mirrors: formatted.streamMirrors,
-              duration: formatted.duration > 30000 ? formatted.duration : 180000
-            };
+  for (const q of queries) {
+    if (!q) continue;
+    for (const node of AUDIUS_DISCOVERY_NODES) {
+      try {
+        const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(q)}&app_name=SPOTIFY_CLONE`);
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data && Array.isArray(data.data) && data.data.length > 0) {
+          // Find full-length track with duration > 60s
+          const fullTrack = data.data.find((r: any) =>
+            (r.stream?.url || r.stream_url || r.is_streamable || r.id) &&
+            ((r.duration || 0) > 60)
+          ) || data.data[0];
+
+          if (fullTrack) {
+            const formatted = formatAudiusSong(fullTrack);
+            if (formatted.audioUrl) {
+              return {
+                audioUrl: formatted.audioUrl,
+                mirrors: formatted.streamMirrors,
+                duration: formatted.duration > 30000 ? formatted.duration : 240000
+              };
+            }
           }
         }
+      } catch (e) {
+        console.warn(`Stream resolution error on node ${node}:`, e);
       }
-    } catch (e) {
-      console.warn(`Stream resolution error on node ${node}:`, e);
     }
   }
   return null;
