@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import ytSearch from 'yt-search';
+import ytdl from '@distube/ytdl-core';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
@@ -79,8 +80,20 @@ app.get('/api/search', async (req, res) => {
   }
 
   try {
+    const badWords = ['10 hours', '1 hour', 'roblox', 'minecraft', 'gameplay', 'walkthrough', 'unboxing', 'reaction to'];
+
     const ytPromise = ytSearch(query)
-      .then(r => (r.videos || []).slice(0, 20).map(formatYtVideo))
+      .then(r => (r.videos || [])
+        .filter(v => {
+          const sec = v.seconds || 0;
+          if (sec < 45 || sec > 700) return false;
+          const t = v.title.toLowerCase();
+          if (badWords.some(w => t.includes(w))) return false;
+          return true;
+        })
+        .slice(0, 20)
+        .map(formatYtVideo)
+      )
       .catch(err => {
         console.warn('YouTube search error:', err.message);
         return [];
@@ -132,11 +145,12 @@ app.get('/api/search', async (req, res) => {
   }
 });
 
-// 2. Resolve endpoint: finds full-length YouTube ID for any track
+// 2. Resolve endpoint: finds exact full-length YouTube track and backup IDs
 app.get('/api/resolve', async (req, res) => {
   const title = (req.query.title as string || '').trim();
   const artist = (req.query.artist as string || '').trim();
-  const q = (req.query.q as string || `${title} ${artist}`).trim();
+  const cleanTitle = title.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+  const q = (req.query.q as string || (artist ? `${cleanTitle} ${artist} audio` : `${cleanTitle} audio`)).trim();
 
   if (!q) {
     return res.status(400).json({ error: 'Missing query' });
@@ -144,21 +158,107 @@ app.get('/api/resolve', async (req, res) => {
 
   try {
     const result = await ytSearch(q);
-    if (result.videos && result.videos.length > 0) {
-      const top = result.videos[0];
+    const videos = result.videos || [];
+
+    const badWords = ['10 hours', '1 hour', 'reaction', 'review', 'tutorial', 'how to play', 'unboxing', 'interview', 'podcast', 'roblox', 'minecraft', 'parody'];
+
+    const scoreVideo = (v: ytSearch.VideoSearchResult) => {
+      let score = 0;
+      const t = v.title.toLowerCase();
+      const a = (v.author?.name || '').toLowerCase();
+      const sec = v.seconds || 0;
+
+      if (sec < 45 || sec > 600) return -100;
+      if (badWords.some(w => t.includes(w))) return -100;
+
+      // Prefer official topic / album audio releases (these allow embedding 100% of the time and have no video dialogues)
+      if (a.endsWith('- topic')) score += 60;
+      if (t.includes('(official audio)') || t.includes('(audio)')) score += 40;
+      if (t.includes('official music video') || t.includes('official video')) score += 25;
+      if (t.includes('lyrics') || t.includes('lyric video')) score += 20;
+
+      // Word matches for title
+      const titleWords = cleanTitle.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+      let matches = 0;
+      for (const w of titleWords) {
+        if (t.includes(w)) matches++;
+      }
+      score += matches * 15;
+
+      // Word matches for artist
+      if (artist) {
+        const artistWords = artist.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        for (const w of artistWords) {
+          if (t.includes(w) || a.includes(w)) score += 10;
+        }
+      }
+
+      return score;
+    };
+
+    const scored = videos
+      .map(v => ({ v, score: scoreVideo(v) }))
+      .filter(x => x.score > 0);
+
+    scored.sort((a, b) => b.score - a.score);
+
+    if (scored.length > 0) {
+      const top = scored[0].v;
+      const backupIds = scored.slice(1, 4).map(x => x.v.videoId);
       return res.json({
         youtubeId: top.videoId,
-        title: top.title,
-        artist: top.author?.name || artist,
+        backupYoutubeIds: backupIds,
+        title: top.title.replace(/\s*(\[Official.*?\]|\(Official.*?\)|Official Video|Official Audio|\(Audio\))\s*/gi, '').trim(),
+        artist: top.author?.name ? top.author.name.replace(/\s*-\s*Topic$/i, '').trim() : artist,
         duration: (top.seconds || 200) * 1000,
         coverUrl: top.thumbnail || `https://i.ytimg.com/vi/${top.videoId}/hqdefault.jpg`,
         isFullLength: true,
       });
     }
+
+    // Fallback to top unpenalized video if scoring had no positive matches
+    if (videos.length > 0) {
+      const fallback = videos[0];
+      return res.json({
+        youtubeId: fallback.videoId,
+        backupYoutubeIds: videos.slice(1, 3).map(v => v.videoId),
+        title: fallback.title,
+        artist: fallback.author?.name || artist,
+        duration: (fallback.seconds || 200) * 1000,
+        coverUrl: fallback.thumbnail || `https://i.ytimg.com/vi/${fallback.videoId}/hqdefault.jpg`,
+        isFullLength: true,
+      });
+    }
+
     return res.status(404).json({ error: 'Song not found' });
   } catch (error: any) {
     console.error('Resolve error:', error);
     return res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/stream/youtube/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!id) return res.status(400).send('Missing ID');
+    
+    const info = await ytdl.getInfo(id);
+    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+    const format = ytdl.chooseFormat(audioFormats, { quality: 'highestaudio' });
+    
+    if (!format) {
+      return res.status(404).send('No audio format found');
+    }
+    
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=2592000'); // 30 days cache
+    
+    ytdl(id, { format }).pipe(res);
+  } catch (error: any) {
+    console.error('YTDL stream error:', error);
+    if (!res.headersSent) {
+      res.status(500).send('Streaming failed');
+    }
   }
 });
 

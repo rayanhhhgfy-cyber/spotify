@@ -67,15 +67,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         if (!ytPlayerRef.current) {
           try {
             ytPlayerRef.current = new (window as any).YT.Player('yt-audio-player', {
-              height: '1',
-              width: '1',
+              height: '180',
+              width: '240',
               playerVars: {
                 autoplay: 0,
                 controls: 0,
                 disablekb: 1,
                 fs: 0,
                 rel: 0,
-                playsinline: 1
+                playsinline: 1,
+                enablejsapi: 1,
+                origin: window.location.origin
               },
               events: {
                 onReady: () => {
@@ -99,9 +101,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
                     }
                   }
                 },
-                onError: (err: any) => {
-                  console.warn('YouTube Player Error, advancing track:', err);
-                  handlersRef.current.nextSong();
+                onError: (event: any) => {
+                  console.warn('YouTube Player Error code:', event.data);
+                  handleYouTubePlaybackError(event.data);
                 }
               }
             });
@@ -193,6 +195,47 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     handlersRef.current.nextSong();
   };
 
+  const handleYouTubePlaybackError = (_errorCode?: any) => {
+    const song = currentSongRef.current;
+    if (!song) return;
+
+    // 1. If backup YouTube IDs are available for the exact same track, try them
+    if (song.backupYoutubeIds && song.backupYoutubeIds.length > 0) {
+      const nextYtId = song.backupYoutubeIds.shift();
+      if (nextYtId) {
+        console.log(`Trying alternate video for "${song.title}": ${nextYtId}`);
+        song.youtubeId = nextYtId;
+        if (ytPlayerRef.current?.loadVideoById) {
+          try {
+            ytPlayerRef.current.loadVideoById(nextYtId);
+            ytPlayerRef.current.playVideo();
+            return;
+          } catch (e) {
+            console.warn('Backup YT play error:', e);
+          }
+        }
+      }
+    }
+
+    // 2. Fallback to HTML5 audio stream if valid mirror exists
+    const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : (song.audioUrl ? [song.audioUrl] : []);
+    const validStream = candidates.find(c => c && !c.startsWith('/api/stream/youtube'));
+    if (validStream) {
+      console.log(`Falling back to audio stream for "${song.title}"`);
+      setActiveEngine('audio');
+      if (audioRef.current) {
+        audioRef.current.src = validStream;
+        audioRef.current.load();
+        safePlay();
+        return;
+      }
+    }
+
+    // 3. Only if all alternatives for this song fail, move to next
+    console.warn(`Could not play "${song.title}", advancing to next track`);
+    handlersRef.current.nextSong();
+  };
+
   const safePlay = () => {
     if (!audioRef.current) return;
     try {
@@ -225,13 +268,24 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     setProgress(0);
     setDuration(song.duration ? song.duration / 1000 : 200);
 
-    // If song does not have youtubeId and is an iTunes 30s preview or missing audioUrl, resolve full song
     let targetSong = { ...song };
-    if (!targetSong.youtubeId && (!targetSong.audioUrl || targetSong.id.startsWith('itunes-') || targetSong.duration <= 30000)) {
+
+    // Resolve full-length stream if no youtubeId or if it has an iTunes 30s preview
+    const is30sPreview = !targetSong.youtubeId && (
+      !targetSong.audioUrl ||
+      targetSong.id.startsWith('itunes-') ||
+      targetSong.duration <= 30000 ||
+      (targetSong.audioUrl && (targetSong.audioUrl.includes('apple.com') || targetSong.audioUrl.includes('mzstatic')))
+    );
+
+    if (is30sPreview || !targetSong.youtubeId) {
       const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist);
       if (resolved) {
-        if (resolved.youtubeId) targetSong.youtubeId = resolved.youtubeId;
-        if (resolved.audioUrl) {
+        if (resolved.youtubeId) {
+          targetSong.youtubeId = resolved.youtubeId;
+          targetSong.backupYoutubeIds = resolved.backupYoutubeIds || [];
+        }
+        if (resolved.audioUrl && !resolved.audioUrl.startsWith('/api/stream/youtube')) {
           targetSong.audioUrl = resolved.audioUrl;
           targetSong.streamMirrors = resolved.mirrors;
         }
@@ -245,7 +299,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
-    if (targetSong.youtubeId) {
+    if (targetSong.youtubeId && !targetSong.audioUrl) {
+      targetSong.audioUrl = `/api/stream/youtube/${targetSong.youtubeId}`;
+    }
+
+    const isOffline = !navigator.onLine;
+
+    if (targetSong.youtubeId && !isOffline) {
       // Use YouTube Engine
       setActiveEngine('youtube');
       if (audioRef.current) {
@@ -263,7 +323,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
             }
           } catch (e) {
             console.warn('Error loading YT video:', e);
+            handleYouTubePlaybackError();
           }
+        } else {
+          setTimeout(playYT, 300);
         }
       };
 
@@ -273,7 +336,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         setTimeout(playYT, 400);
       }
     } else {
-      // Use Standard Audio Engine
+      // Use Standard Audio Engine (offline or direct stream)
       setActiveEngine('audio');
       if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
         try {
@@ -283,7 +346,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       setIsPlaying(true);
       if (audioRef.current) {
         const candidates = targetSong.streamMirrors && targetSong.streamMirrors.length > 0 ? targetSong.streamMirrors : [targetSong.audioUrl];
-        audioRef.current.src = candidates[0] || '';
+        const validStream = candidates.find(c => c && !c.startsWith('/api/stream/youtube')) || candidates[0];
+        audioRef.current.src = validStream || '';
         audioRef.current.load();
         safePlay();
       }
@@ -494,20 +558,22 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }}
     >
       {children}
-      {/* Hidden YouTube IFrame Player Container for full track audio playback */}
+      {/* YouTube IFrame Player Container for full track audio playback */}
       <div
         id="yt-audio-player-container"
         style={{
           position: 'fixed',
-          top: -9999,
-          left: -9999,
-          width: 1,
-          height: 1,
-          opacity: 0,
-          pointerEvents: 'none'
+          bottom: 0,
+          right: 0,
+          width: 240,
+          height: 180,
+          opacity: 0.01,
+          zIndex: -50,
+          pointerEvents: 'none',
+          overflow: 'hidden'
         }}
       >
-        <div id="yt-audio-player"></div>
+        <div id="yt-audio-player" style={{ width: 240, height: 180 }}></div>
       </div>
 
       {/* HTML5 Audio Element for direct stream fallback and local audio */}

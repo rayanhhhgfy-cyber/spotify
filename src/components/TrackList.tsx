@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Song } from '../types';
 import { usePlayer } from '../context/PlayerContext';
 import { Play, Download, ListPlus, Check } from 'lucide-react';
@@ -31,6 +31,24 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
   const [modalSong, setModalSong] = useState<Song | null>(null);
+
+  useEffect(() => {
+    const syncDownloads = () => {
+      try {
+        const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+        setDownloadedIds(new Set(downloaded.map((s: Song) => s.id)));
+      } catch {
+        setDownloadedIds(new Set());
+      }
+    };
+    syncDownloads();
+    window.addEventListener('downloads-updated', syncDownloads);
+    window.addEventListener('storage', syncDownloads);
+    return () => {
+      window.removeEventListener('downloads-updated', syncDownloads);
+      window.removeEventListener('storage', syncDownloads);
+    };
+  }, []);
 
   const formatDuration = (ms: number) => {
     const totalSeconds = Math.floor(ms / 1000);

@@ -45,10 +45,12 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
     load();
     const handleUpdate = () => load();
     window.addEventListener('playlists-updated', handleUpdate);
+    window.addEventListener('downloads-updated', handleUpdate);
     window.addEventListener('storage', handleUpdate);
     const interval = setInterval(load, 2000);
     return () => {
       window.removeEventListener('playlists-updated', handleUpdate);
+      window.removeEventListener('downloads-updated', handleUpdate);
       window.removeEventListener('storage', handleUpdate);
       clearInterval(interval);
     };
@@ -122,7 +124,14 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
     
     setTimeout(() => {
       setIsDownloading(false);
-      setIsDownloaded(true);
+      try {
+        const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+        const allDownloaded = playlist.songs.length > 0 && playlist.songs.every(s => downloaded.some((dl: Song) => dl.id === s.id));
+        setIsDownloaded(allDownloaded);
+        if (!allDownloaded) setDownloadStatusText('Some tracks failed to download');
+      } catch {
+        setIsDownloaded(false);
+      }
     }, 1500);
   };
 

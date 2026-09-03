@@ -415,6 +415,69 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
                 onChange={handleLocalFiles}
               />
             </div>
+
+            {/* 4. Library Backup */}
+            <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl flex flex-col justify-between">
+              <div>
+                <div className="w-12 h-12 bg-orange-500/20 text-orange-400 rounded-2xl flex items-center justify-center mb-4 shadow">
+                  <Download size={24} />
+                </div>
+                <h3 className="text-lg font-bold text-white mb-1">Library Backup</h3>
+                <p className="text-xs text-zinc-400 mb-5 leading-relaxed">
+                  Export all your playlists and saved songs to a file on your device.
+                </p>
+              </div>
+              
+              <div className="mt-auto space-y-2">
+                <button 
+                  onClick={() => {
+                    const data = {
+                      playlists: JSON.parse(localStorage.getItem('playlists') || '[]'),
+                      savedSongs: JSON.parse(localStorage.getItem('saved_songs') || '[]'),
+                      downloads: JSON.parse(localStorage.getItem('downloaded_songs') || '[]')
+                    };
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `music_library_backup_${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="w-full bg-zinc-800 text-white font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-zinc-700 transition-colors border border-zinc-700"
+                >
+                  Download JSON Backup
+                </button>
+                <button 
+                  onClick={() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.accept = 'application/json';
+                    input.onchange = (e) => {
+                      const file = (e.target as HTMLInputElement).files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (e) => {
+                        try {
+                          const data = JSON.parse(e.target?.result as string);
+                          if (data.playlists) localStorage.setItem('playlists', JSON.stringify(data.playlists));
+                          if (data.savedSongs) localStorage.setItem('saved_songs', JSON.stringify(data.savedSongs));
+                          if (data.downloads) localStorage.setItem('downloaded_songs', JSON.stringify(data.downloads));
+                          window.location.reload();
+                        } catch (err) {
+                          alert('Invalid backup file');
+                        }
+                      };
+                      reader.readAsText(file);
+                    };
+                    input.click();
+                  }}
+                  className="w-full bg-transparent text-zinc-400 font-bold text-xs px-4 py-2.5 rounded-xl hover:bg-zinc-800 hover:text-white transition-colors"
+                >
+                  Restore Backup
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

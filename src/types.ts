@@ -8,6 +8,7 @@ export interface Song {
   streamMirrors?: string[];
   duration: number; // in milliseconds
   youtubeId?: string;
+  backupYoutubeIds?: string[];
   isFullLength?: boolean;
 }
 

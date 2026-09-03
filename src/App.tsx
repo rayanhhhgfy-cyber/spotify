@@ -10,12 +10,26 @@ import { PlaylistView } from './views/PlaylistView';
 import { QueueView } from './views/QueueView';
 import { DiscoverView } from './views/DiscoverView';
 import { motion, AnimatePresence } from 'motion/react';
-import { importSharedPlaylist } from './api';
+import { importSharedPlaylist, reconcileDownloads } from './api';
 import { CheckCircle2, Sparkles, X } from 'lucide-react';
 
 export default function App() {
   const [currentView, setCurrentView] = useState('home');
   const [toastMessage, setToastMessage] = useState<{ title: string; subtitle?: string } | null>(null);
+
+  // Request persistent storage and reconcile offline downloads on startup
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then((persistent) => {
+        if (persistent) {
+          console.log('Browser granted permanent persistent storage.');
+        } else {
+          console.log('Storage is best-effort (may be cleared if device is full).');
+        }
+      }).catch(console.error);
+    }
+    reconcileDownloads().catch(console.warn);
+  }, []);
 
   // Check and import shared playlist on startup if URL contains share params or payload
   useEffect(() => {

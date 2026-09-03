@@ -57,30 +57,33 @@ export const formatAudiusSong = (r: any): Song => {
   };
 };
 
-export const resolveFullLengthStream = async (title: string, artist: string): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string } | null> => {
+export const resolveFullLengthStream = async (title: string, artist: string, forceAudius = false): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string; backupYoutubeIds?: string[] } | null> => {
   // 1. First priority: Server-side YouTube & full song resolver
-  try {
-    const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.youtubeId) {
-        return {
-          audioUrl: '',
-          mirrors: [],
-          duration: data.duration || 240000,
-          youtubeId: data.youtubeId
-        };
+  if (!forceAudius) {
+    try {
+      const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.youtubeId) {
+          return {
+            audioUrl: `/api/stream/youtube/${data.youtubeId}`,
+            mirrors: [],
+            duration: data.duration || 240000,
+            youtubeId: data.youtubeId,
+            backupYoutubeIds: data.backupYoutubeIds || []
+          };
+        }
       }
+    } catch (e) {
+      console.warn('Backend resolve error:', e);
     }
-  } catch (e) {
-    console.warn('Backend resolve error:', e);
   }
 
-  // 2. Query Audius decentralized catalog for stream resolution
+  // 2. Query Audius decentralized catalog for stream resolution with strict title validation
+  const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
   const queries: string[] = [
     `${title} ${artist}`.trim(),
-    title.trim(),
-    artist.trim()
+    title.trim()
   ];
 
   for (const q of queries) {
@@ -91,10 +94,13 @@ export const resolveFullLengthStream = async (title: string, artist: string): Pr
         if (!res.ok) continue;
         const data = await res.json();
         if (data && Array.isArray(data.data) && data.data.length > 0) {
-          const fullTrack = data.data.find((r: any) =>
-            (r.stream?.url || r.stream_url || r.is_streamable || r.id) &&
-            ((r.duration || 0) > 60)
-          ) || data.data[0];
+          // Strictly verify that track title contains the core song title
+          const fullTrack = data.data.find((r: any) => {
+            if (!r.title) return false;
+            const rTitle = r.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const hasStream = r.stream?.url || r.stream_url || r.is_streamable || r.id;
+            return hasStream && (rTitle.includes(cleanTitle) || cleanTitle.includes(rTitle));
+          });
 
           if (fullTrack) {
             const formatted = formatAudiusSong(fullTrack);
@@ -220,8 +226,6 @@ export const toggleSaveSong = async (song: Song): Promise<boolean> => {
   } else {
     saved.push(song);
     localStorage.setItem('saved_songs', JSON.stringify(saved));
-    // Trigger SW cache
-    downloadSong(song);
     return true;
   }
 };
@@ -231,21 +235,66 @@ export const isSongSaved = (id: string): boolean => {
   return saved.some(s => s.id === id);
 };
 
+export const reconcileDownloads = async (): Promise<Song[]> => {
+  try {
+    const downloaded: Song[] = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+    if (!('caches' in window)) {
+      return downloaded;
+    }
+    const cache = await caches.open('spotify-audio-v1');
+    const valid: Song[] = [];
+    for (const s of downloaded) {
+      if (s.audioUrl) {
+        const match = await cache.match(s.audioUrl);
+        if (match) {
+          valid.push(s);
+        }
+      }
+    }
+    localStorage.setItem('downloaded_songs', JSON.stringify(valid));
+    return valid;
+  } catch {
+    return [];
+  }
+};
+
 export const downloadSong = async (song: Song): Promise<boolean> => {
   try {
+    let finalAudioUrl = song.audioUrl;
+    
+    // If no audioUrl or if it's an iTunes 30s preview, check if Audius has a verified full track match
+    if (!finalAudioUrl || finalAudioUrl.includes('apple.com') || finalAudioUrl.includes('mzstatic')) {
+      const fallback = await resolveFullLengthStream(song.title, song.artist, true);
+      if (fallback && fallback.audioUrl) {
+        finalAudioUrl = fallback.audioUrl;
+      }
+    }
+
+    if (!finalAudioUrl) {
+      console.warn(`No downloadable direct audio stream available for "${song.title}"`);
+      return false;
+    }
+
+    if ('caches' in window) {
+      const cache = await caches.open('spotify-audio-v1');
+      const response = await fetch(finalAudioUrl, { mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch stream: ${response.status}`);
+      }
+      await cache.put(finalAudioUrl, response);
+    }
+    
     const downloaded = JSON.parse(localStorage.getItem('downloaded_songs') || '[]');
+    const storedSong = { ...song, audioUrl: finalAudioUrl };
     if (!downloaded.some((s: Song) => s.id === song.id)) {
-      downloaded.push(song);
+      downloaded.push(storedSong);
       localStorage.setItem('downloaded_songs', JSON.stringify(downloaded));
     }
-    if (song.audioUrl && 'caches' in window) {
-      const cache = await caches.open('spotify-audio-v1');
-      await cache.add(song.audioUrl);
-    }
+    window.dispatchEvent(new CustomEvent('downloads-updated'));
     return true;
   } catch (e) {
-    console.error("Download failed", e);
-    return true; // Still marked as downloaded locally
+    console.error(`Download failed for ${song.title}:`, e);
+    return false;
   }
 };
 
@@ -271,6 +320,8 @@ export const downloadPlaylist = async (
       } catch (e) {
         console.warn(`Failed to resolve ${song.title}`, e);
       }
+    } else if (song.youtubeId && !song.audioUrl) {
+      song.audioUrl = `/api/stream/youtube/${song.youtubeId}`;
     }
     
     await downloadSong(song);
@@ -323,7 +374,6 @@ export const addSongToPlaylist = (playlistId: string, song: Song) => {
     if (!playlist.songs.some(s => s.id === song.id)) {
       playlist.songs.push(song);
       localStorage.setItem('playlists', JSON.stringify(playlists));
-      downloadSong(song);
       notifyPlaylistsChanged();
     }
   }
