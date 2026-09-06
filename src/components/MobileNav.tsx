@@ -57,8 +57,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
           className="flex flex-col items-center justify-center space-y-1 w-full h-full min-h-[44px] text-green-400 active:scale-90 transition-all touch-manipulation"
           title="Download App (PWA)"
         >
-          <div className="p-1 rounded-full bg-green-500/10">
+                <div className="p-1 rounded-full bg-green-500/10 relative">
             <Download size={18} />
+                  <span className="absolute -top-1 -right-2 text-[8px] font-mono font-bold bg-green-500 text-black px-1 rounded-full">v2.4</span>
           </div>
           <span className="text-[10px] font-bold">Install</span>
         </button>
@@ -73,7 +74,10 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
                   <Download size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Install Spotify Clone</h3>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    Install Spotify Clone
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">v2.4</span>
+                  </h3>
                   <p className="text-xs text-zinc-400">Full Progressive Web App</p>
                 </div>
               </div>

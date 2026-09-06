@@ -45,7 +45,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
         <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
            <div className="w-4 h-4 rounded-full border-2 border-black" />
         </div>
-        <span>Spotify Clone</span>
+        <span className="flex items-center gap-2">
+          Spotify Clone
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-green-400 border border-green-500/20">v2.4</span>
+        </span>
       </div>
       
       <nav className="space-y-4">
