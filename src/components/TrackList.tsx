@@ -77,7 +77,7 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
   }
 
   return (
-    <div className="w-full pb-16 md:pb-6">
+    <div className="w-full pb-24 md:pb-8">
       {modalSong && <PlaylistModal song={modalSong} onClose={() => setModalSong(null)} />}
       
       {showHeader && (

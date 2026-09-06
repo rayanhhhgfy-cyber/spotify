@@ -78,6 +78,17 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
 
       {/* Mobile-Only Action Controls */}
       <div className="flex md:hidden items-center space-x-1 flex-shrink-0">
+        {onViewChange && (
+          <motion.button
+            whileTap={{ scale: 0.85 }}
+            onClick={(e) => { e.stopPropagation(); onViewChange('queue'); }}
+            className={`p-2 min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors touch-manipulation ${currentView === 'queue' ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}
+            title="Queue"
+          >
+            <ListMusic size={20} />
+          </motion.button>
+        )}
+
         <motion.button
           whileTap={{ scale: 0.85 }}
           onClick={(e) => { e.stopPropagation(); handleSave(); }}

@@ -233,7 +233,7 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
         <motion.div
           animate={{ scale: isPlaying ? 1 : 0.95 }}
           transition={{ duration: 0.3 }}
-          className="w-full max-w-[290px] sm:max-w-[340px] aspect-square mb-5 sm:mb-8 shadow-2xl rounded-2xl overflow-hidden mx-auto"
+          className="w-full max-w-[240px] sm:max-w-[320px] aspect-square mb-4 sm:mb-6 shadow-2xl rounded-2xl overflow-hidden mx-auto"
         >
           <img 
             src={currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg'} 
@@ -336,7 +336,7 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
         </div>
 
         {/* Lyrics Section with Sync Timing Calibration */}
-        <div className="mt-4 bg-zinc-800/80 rounded-2xl p-6 relative min-h-[400px] overflow-hidden flex flex-col">
+        <div className="mt-4 bg-zinc-800/80 rounded-2xl p-5 relative min-h-[200px] max-h-[350px] overflow-hidden flex flex-col">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               Lyrics

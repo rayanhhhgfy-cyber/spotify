@@ -57,28 +57,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     currentSongRef.current = currentSong;
   }, [currentSong]);
 
-  // Keep iOS / Android / Desktop audio session actively authorized in background
+  // Keep iOS / Android audio session authorized in background
   const ensureAudioSessionActive = () => {
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-          audioContextRef.current = new AudioCtx();
-        }
-        if (audioContextRef.current.state === 'suspended') {
-          audioContextRef.current.resume().catch(() => {});
-        }
-      }
-    } catch (e) {}
-
-    if (silentAudioRef.current && silentAudioRef.current.paused) {
-      silentAudioRef.current.play().catch(() => {});
-    }
-  };
-
-  const pauseAudioSession = () => {
-    if (silentAudioRef.current && !silentAudioRef.current.paused) {
-      silentAudioRef.current.pause();
+    if (audioRef.current && audioRef.current.paused && isPlayingRef.current && !userInitiatedPauseRef.current) {
+      audioRef.current.play().catch(() => {});
     }
   };
 
@@ -89,11 +71,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         navigator.mediaSession.playbackState = isPlaying ? 'playing' : 'paused';
       } catch (e) {}
-    }
-    if (isPlaying) {
-      ensureAudioSessionActive();
-    } else {
-      pauseAudioSession();
     }
   }, [isPlaying]);
 
@@ -141,26 +118,19 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     seek: (_t: number) => {}
   });
 
-  // Handle visibility changes (phone locked / closed / tab backgrounded on iPhone, Android, Windows, Mac)
+  // Handle visibility changes (phone locked / closed / tab backgrounded)
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        // App backgrounded or phone locked: Ensure background audio session stays active
         if (isPlayingRef.current) {
           ensureAudioSessionActive();
-          if (audioRef.current && audioRef.current.paused && !userInitiatedPauseRef.current) {
-            audioRef.current.play().catch(() => {});
-          }
         }
       } else if (document.visibilityState === 'visible') {
-        // Returned to app / unlocked: sync UI with current audio state
-        if (isPlayingRef.current && audioRef.current) {
-          if (audioRef.current.paused && !userInitiatedPauseRef.current) {
-            audioRef.current.play().catch(() => {});
-          }
-          if (typeof audioRef.current.currentTime === 'number' && !isNaN(audioRef.current.currentTime)) {
-            setProgress(audioRef.current.currentTime);
-          }
+        if (isPlayingRef.current) {
+          ensureAudioSessionActive();
+        }
+        if (audioRef.current && typeof audioRef.current.currentTime === 'number' && !isNaN(audioRef.current.currentTime)) {
+          setProgress(audioRef.current.currentTime);
         }
       }
     };
@@ -471,7 +441,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const playSong = (song: Song, newQueue: Song[] = []) => {
-    ensureAudioSessionActive();
     if (newQueue.length > 0) {
       setQueue(newQueue);
     } else if (queue.length === 0) {
@@ -482,7 +451,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const shufflePlay = (songs: Song[]) => {
     if (!songs || songs.length === 0) return;
-    ensureAudioSessionActive();
     const shuffled = [...songs].sort(() => Math.random() - 0.5);
     setIsShuffle(true);
     setQueue(shuffled);
@@ -490,7 +458,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const _playDirectly = (song: Song) => {
-    ensureAudioSessionActive();
     startPlayback(song);
   };
 
@@ -500,7 +467,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     if (isPlaying) {
       userInitiatedPauseRef.current = true;
       setIsPlaying(false);
-      pauseAudioSession();
       if (activeEngine === 'youtube') {
         if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
           try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
@@ -519,7 +485,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     } else {
       userInitiatedPauseRef.current = false;
       setIsPlaying(true);
-      ensureAudioSessionActive();
       if (activeEngine === 'youtube') {
         if (ytPlayerRef.current && ytPlayerRef.current.playVideo) {
           try { ytPlayerRef.current.playVideo(); } catch (e) {}
@@ -636,7 +601,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         navigator.mediaSession.setActionHandler('play', () => {
-          ensureAudioSessionActive();
           handlersRef.current.togglePlay();
         });
         navigator.mediaSession.setActionHandler('pause', () => {
@@ -703,15 +667,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }}
     >
       {children}
-      {/* Background Audio Session Keeper for iOS lockscreen / closed phone playback */}
-      <audio
-        ref={silentAudioRef}
-        playsInline
-        loop
-        preload="auto"
-        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
-        style={{ display: 'none' }}
-      />
 
       {/* YouTube IFrame Player Container for full track audio playback */}
       <div
@@ -771,13 +726,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           if (activeEngine === 'audio') {
             if (userInitiatedPauseRef.current) {
               setIsPlaying(false);
-            } else if (isPlayingRef.current) {
-              // OS Lockscreen or background interruption: automatically maintain playback
-              setTimeout(() => {
-                if (isPlayingRef.current && audioRef.current?.paused && !userInitiatedPauseRef.current) {
-                  audioRef.current.play().catch(() => {});
-                }
-              }, 150);
             }
           }
         }}
