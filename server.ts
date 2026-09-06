@@ -1,12 +1,18 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { execFile } from 'child_process';
+import https from 'https';
 import ytSearch from 'yt-search';
 import ytdl from '@distube/ytdl-core';
 import { createServer as createViteServer } from 'vite';
 
 const app = express();
 const PORT = 3000;
+
+// yt-dlp binary path and stream cache
+const ytdlpPath = path.join(process.cwd(), 'yt-dlp');
+const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 app.use(express.json({ limit: '10mb' }));
 
@@ -236,22 +242,103 @@ app.get('/api/resolve', async (req, res) => {
 app.get('/api/stream/youtube/:id', async (req, res) => {
   try {
     const id = req.params.id;
-    if (!id) return res.status(400).send('Missing ID');
-    
-    const info = await ytdl.getInfo(id);
-    const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-    const format = ytdl.chooseFormat(audioFormats, { quality: 'highestaudio' });
-    
-    if (!format) {
-      return res.status(404).send('No audio format found');
+    if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) return res.status(400).send('Invalid or missing ID');
+
+    // 1. Check in-memory stream URL cache
+    let streamUrl: string | null = null;
+    const cached = streamUrlCache.get(id);
+    if (cached && cached.expiresAt > Date.now() + 60000) {
+      streamUrl = cached.url;
     }
-    
-    res.setHeader('Content-Type', 'audio/mpeg');
-    res.setHeader('Cache-Control', 'public, max-age=2592000'); // 30 days cache
-    
-    ytdl(id, { format }).pipe(res);
+
+    // 2. Extract with yt-dlp if not cached
+    if (!streamUrl && fs.existsSync(ytdlpPath)) {
+      try {
+        const extractedUrl = await new Promise<string>((resolve, reject) => {
+          execFile(
+            ytdlpPath,
+            ['-g', '-f', '140/ba[ext=m4a]/ba/b', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
+            { timeout: 10000 },
+            (err, stdout) => {
+              if (err) return reject(err);
+              const url = stdout.trim().split('\n')[0];
+              if (url && url.startsWith('http')) {
+                resolve(url);
+              } else {
+                reject(new Error('No stream URL output'));
+              }
+            }
+          );
+        });
+
+        if (extractedUrl) {
+          streamUrl = extractedUrl;
+          streamUrlCache.set(id, { url: extractedUrl, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
+        }
+      } catch (e: any) {
+        console.warn(`yt-dlp extraction failed for ${id}:`, e.message);
+      }
+    }
+
+    // 3. Fallback to ytdl if yt-dlp did not produce URL
+    if (!streamUrl) {
+      try {
+        const info = await ytdl.getInfo(id);
+        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
+        const format = ytdl.chooseFormat(audioFormats, { quality: 'highestaudio' });
+        if (format) {
+          res.setHeader('Content-Type', 'audio/mpeg');
+          res.setHeader('Cache-Control', 'public, max-age=86400');
+          return ytdl(id, { format }).pipe(res);
+        }
+      } catch (e) {
+        // Fallback failed
+      }
+      return res.status(404).send('Stream unavailable, use client playback');
+    }
+
+    // 4. Proxy direct audio stream with full Range header support
+    const targetUrl = new URL(streamUrl);
+    const rangeHeader = req.headers.range;
+    const requestHeaders: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
+    };
+    if (rangeHeader) {
+      requestHeaders['Range'] = rangeHeader;
+    }
+
+    const proxyReq = https.request(
+      {
+        hostname: targetUrl.hostname,
+        path: targetUrl.pathname + targetUrl.search,
+        method: 'GET',
+        headers: requestHeaders
+      },
+      proxyRes => {
+        const status = proxyRes.statusCode || 200;
+        res.status(status);
+        if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
+        if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
+        if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
+        if (proxyRes.headers['accept-ranges']) res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
+        res.setHeader('Cache-Control', 'public, max-age=14400');
+
+        proxyRes.pipe(res);
+      }
+    );
+
+    proxyReq.on('error', (err) => {
+      console.warn('Proxy stream error:', err.message);
+      if (!res.headersSent) res.status(502).send('Upstream stream error');
+    });
+
+    proxyReq.end();
+
+    req.on('close', () => {
+      proxyReq.destroy();
+    });
   } catch (error: any) {
-    console.error('YTDL stream error:', error);
+    console.error('Stream handler error:', error);
     if (!res.headersSent) {
       res.status(500).send('Streaming failed');
     }
