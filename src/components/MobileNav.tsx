@@ -30,7 +30,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black to-zinc-900/95 backdrop-blur-lg border-t border-zinc-800 flex items-center justify-around z-50">
+    <div className="md:hidden fixed bottom-0 left-0 right-0 h-[calc(3.75rem+env(safe-area-inset-bottom,0px))] pb-[env(safe-area-inset-bottom,0px)] bg-black/95 backdrop-blur-xl border-t border-zinc-800/80 flex items-center justify-around z-50 select-none">
       {navItems.map((item) => {
         const Icon = item.icon;
         const isActive = currentView === item.id;
@@ -38,12 +38,15 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
           <button
             key={item.id}
             onClick={() => onViewChange(item.id)}
-            className={`flex flex-col items-center justify-center space-y-1 w-full h-full transition-colors ${
-              isActive ? 'text-white' : 'text-zinc-400'
+            className={`flex flex-col items-center justify-center space-y-1 w-full h-full min-h-[44px] active:scale-90 transition-all touch-manipulation relative ${
+              isActive ? 'text-white' : 'text-zinc-400 hover:text-zinc-200'
             }`}
           >
-            <Icon size={22} className={isActive ? 'text-green-500' : ''} />
-            <span className="text-[10px] font-medium">{item.label}</span>
+            <Icon size={21} className={`transition-colors ${isActive ? 'text-green-500 scale-105' : ''}`} />
+            <span className={`text-[10px] tracking-tight ${isActive ? 'font-bold text-white' : 'font-medium'}`}>{item.label}</span>
+            {isActive && (
+              <span className="absolute bottom-1 w-1 h-1 bg-green-500 rounded-full" />
+            )}
           </button>
         );
       })}
@@ -51,7 +54,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
       {!isInstalled && (
         <button
           onClick={handleInstallPWA}
-          className="flex flex-col items-center justify-center space-y-1 w-full h-full text-green-400 hover:text-green-300 transition-colors"
+          className="flex flex-col items-center justify-center space-y-1 w-full h-full min-h-[44px] text-green-400 active:scale-90 transition-all touch-manipulation"
           title="Download App (PWA)"
         >
           <div className="p-1 rounded-full bg-green-500/10">

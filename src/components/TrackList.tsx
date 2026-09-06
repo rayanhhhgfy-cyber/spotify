@@ -77,7 +77,7 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
   }
 
   return (
-    <div className="w-full pb-48 md:pb-8">
+    <div className="w-full pb-8 md:pb-6">
       {modalSong && <PlaylistModal song={modalSong} onClose={() => setModalSong(null)} />}
       
       {showHeader && (
@@ -92,7 +92,7 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="flex flex-col"
+        className="flex flex-col space-y-0.5"
       >
         {songs.map((song, index) => {
           const isCurrent = currentSong?.id === song.id;
@@ -100,15 +100,14 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
             <motion.div
               key={`${song.id}-${index}`}
               variants={itemVariants}
-              whileHover={{ scale: 1.008 }}
-              whileTap={{ scale: 0.995 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => playSong(song, songs)}
-              className={`group flex items-center p-2 px-3 sm:px-4 rounded-md cursor-pointer transition-colors select-none ${
-                isCurrent ? 'bg-zinc-800' : 'hover:bg-zinc-800/50'
+              className={`group flex items-center py-2 px-2 sm:px-4 rounded-lg cursor-pointer transition-colors select-none touch-manipulation active:bg-zinc-800/80 ${
+                isCurrent ? 'bg-zinc-850 bg-zinc-800/90' : 'hover:bg-zinc-800/50'
               }`}
             >
-              {/* Number or Play Icon */}
-              <div className="w-7 sm:w-8 flex-shrink-0 text-zinc-400 flex items-center justify-center">
+              {/* Number or Play Icon (hidden on smallest screens to give max space to title/artist) */}
+              <div className="hidden xs:flex sm:flex w-6 sm:w-8 flex-shrink-0 text-zinc-400 items-center justify-center">
                 {isCurrent && isPlaying ? (
                   <div className="w-4 h-4 flex items-end justify-center space-x-[2px] overflow-hidden">
                      <div className="w-1 bg-green-500 animate-[bounce_1s_infinite_0s]" style={{height: '60%'}}></div>
@@ -118,19 +117,24 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
                 ) : (
                   <>
                     <span className="group-hover:hidden text-xs sm:text-sm">{index + 1}</span>
-                    <Play size={16} className="hidden group-hover:block fill-current text-white" />
+                    <Play size={15} className="hidden group-hover:block fill-current text-white" />
                   </>
                 )}
               </div>
 
               {/* Title & Artist */}
               <div className="flex-1 flex items-center min-w-0 pr-2 sm:pr-4">
-                <img src={song.coverUrl} alt={song.title} className="w-10 h-10 md:w-12 md:h-12 rounded bg-zinc-800 flex-shrink-0 object-cover shadow-sm" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} />
-                <div className="ml-3 sm:ml-4 truncate">
-                  <p className={`text-sm sm:text-base font-medium truncate ${isCurrent ? 'text-green-500' : 'text-white'}`}>
+                <img 
+                  src={song.coverUrl} 
+                  alt={song.title} 
+                  className="w-11 h-11 sm:w-12 sm:h-12 rounded-md bg-zinc-800 flex-shrink-0 object-cover shadow-sm" 
+                  onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} 
+                />
+                <div className="ml-3 truncate min-w-0">
+                  <p className={`text-sm sm:text-base font-semibold truncate ${isCurrent ? 'text-green-500' : 'text-white'}`}>
                     {song.title}
                   </p>
-                  <p className="text-xs sm:text-sm text-zinc-400 truncate hover:underline">{song.artist}</p>
+                  <p className="text-xs sm:text-sm text-zinc-400 truncate mt-0.5">{song.artist}</p>
                 </div>
               </div>
 
@@ -140,12 +144,10 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
               </div>
 
               {/* Actions & Duration */}
-              <div className="flex-shrink-0 flex justify-end items-center space-x-2 sm:space-x-4 pr-1 sm:pr-4">
-                <motion.button
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.9 }}
+              <div className="flex-shrink-0 flex justify-end items-center space-x-1 sm:space-x-2">
+                <button
                   onClick={(e) => handleDownload(e, song)}
-                  className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-1"
+                  className="opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center active:scale-90 touch-manipulation"
                   title="Download for Offline"
                 >
                   {downloadingId === song.id ? (
@@ -155,17 +157,15 @@ export const TrackList: React.FC<TrackListProps> = ({ songs, showHeader = true }
                   ) : (
                     <Download size={18} />
                   )}
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.15 }}
-                  whileTap={{ scale: 0.9 }}
+                </button>
+                <button
                   onClick={(e) => handleOpenModal(e, song)}
-                  className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-1"
+                  className="opacity-90 md:opacity-0 md:group-hover:opacity-100 transition-opacity text-zinc-400 hover:text-white p-2 min-h-[44px] min-w-[44px] flex items-center justify-center active:scale-90 touch-manipulation"
                   title="Add to Playlist"
                 >
                   <ListPlus size={18} />
-                </motion.button>
-                <div className="hidden sm:flex flex-col items-end">
+                </button>
+                <div className="hidden sm:flex flex-col items-end pr-2">
                   <span className="text-xs sm:text-sm text-zinc-400 min-w-[36px] text-right">{formatDuration(song.duration)}</span>
                 </div>
               </div>

@@ -45,11 +45,11 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
       initial={{ y: 50, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.3 }}
-      className="fixed bottom-16 md:bottom-0 left-0 right-0 h-16 md:h-24 bg-zinc-900 md:bg-[#181818] border-t border-zinc-800 md:border-t-0 flex items-center justify-between px-4 z-[60]"
+      className="fixed bottom-[calc(3.85rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-2 right-2 md:left-0 md:right-0 h-14 md:h-24 bg-zinc-900/95 md:bg-[#181818] border border-zinc-800/80 md:border-t md:border-zinc-800 md:border-none rounded-xl md:rounded-none flex items-center justify-between px-3 md:px-4 z-[60] shadow-2xl backdrop-blur-xl select-none"
     >
-      {/* Left: Song Info */}
+      {/* Left: Song Info (Tap to expand full player) */}
       <div 
-        className="flex items-center w-[30%] min-w-[120px] cursor-pointer hover:bg-zinc-800/50 p-2 -ml-2 rounded-lg transition-colors"
+        className="flex items-center flex-1 md:flex-initial md:w-[30%] min-w-0 cursor-pointer p-1 -ml-1 rounded-lg transition-colors hover:bg-zinc-800/40"
         onClick={() => setIsExpanded(true)}
       >
         <motion.img
@@ -59,14 +59,12 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
           transition={{ duration: 0.2 }}
           src={currentSong.coverUrl}
           alt={currentSong.title}
-          className="h-10 w-10 md:h-14 md:w-14 rounded-md shadow-lg object-cover"
+          className="h-10 w-10 md:h-14 md:w-14 rounded-md shadow-md object-cover flex-shrink-0"
           onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
         />
-        <div className="ml-3 md:ml-4 overflow-hidden">
-          <div className="flex items-center space-x-2">
-            <p className="text-white text-sm font-medium truncate">{currentSong.title}</p>
-          </div>
-          <p className="text-zinc-400 text-xs truncate">{currentSong.artist}</p>
+        <div className="ml-2.5 md:ml-4 overflow-hidden min-w-0 pr-2">
+          <p className="text-white text-xs md:text-sm font-semibold truncate leading-tight">{currentSong.title}</p>
+          <p className="text-zinc-400 text-[11px] md:text-xs truncate leading-normal mt-0.5">{currentSong.artist}</p>
         </div>
         <motion.button
           whileHover={{ scale: 1.15 }}
@@ -78,14 +76,43 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
         </motion.button>
       </div>
 
-      {/* Center: Controls */}
-      <div className="flex flex-col items-center max-w-[40%] flex-1">
-        <div className="flex items-center space-x-4 md:space-x-6">
+      {/* Mobile-Only Action Controls */}
+      <div className="flex md:hidden items-center space-x-1 flex-shrink-0">
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={(e) => { e.stopPropagation(); handleSave(); }}
+          className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:text-white transition-colors touch-manipulation"
+          title={isSaved ? "Remove from Liked" : "Add to Liked"}
+        >
+          <Heart size={20} className={isSaved ? "fill-green-500 text-green-500" : ""} />
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.9 }}
+          onClick={togglePlay} 
+          className="w-9 h-9 flex items-center justify-center bg-white text-black rounded-full shadow-lg transition-transform touch-manipulation flex-shrink-0"
+        >
+          {isPlaying ? <Pause size={18} className="fill-current" /> : <Play size={18} className="fill-current ml-0.5" />}
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={nextSong}
+          className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:text-white transition-colors touch-manipulation"
+          title="Next Track"
+        >
+          <SkipForward size={20} className="fill-current" />
+        </motion.button>
+      </div>
+
+      {/* Center: Desktop Controls & Scrubber */}
+      <div className="hidden md:flex flex-col items-center max-w-[40%] flex-1">
+        <div className="flex items-center space-x-6">
           <motion.button
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
             onClick={toggleShuffle}
-            className={`transition-colors hidden md:block ${isShuffle ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
+            className={`transition-colors ${isShuffle ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
           >
             <Shuffle size={18} />
           </motion.button>
@@ -93,7 +120,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
             onClick={prevSong}
-            className="text-zinc-400 hover:text-white transition-colors hidden md:block"
+            className="text-zinc-400 hover:text-white transition-colors"
           >
             <SkipBack size={20} className="fill-current" />
           </motion.button>
@@ -101,7 +128,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.95 }}
             onClick={togglePlay} 
-            className="w-10 h-10 md:w-10 md:h-10 flex items-center justify-center bg-white text-black rounded-full shadow-lg transition-transform"
+            className="w-10 h-10 flex items-center justify-center bg-white text-black rounded-full shadow-lg transition-transform"
           >
             {isPlaying ? <Pause size={20} className="fill-current" /> : <Play size={20} className="fill-current ml-0.5" />}
           </motion.button>
@@ -109,7 +136,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
             onClick={nextSong}
-            className="text-zinc-400 hover:text-white transition-colors hidden md:block"
+            className="text-zinc-400 hover:text-white transition-colors"
           >
             <SkipForward size={20} className="fill-current" />
           </motion.button>
@@ -117,14 +144,14 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
             whileHover={{ scale: 1.15 }}
             whileTap={{ scale: 0.9 }}
             onClick={toggleRepeat}
-            className={`transition-colors hidden md:block ${repeatMode !== 'off' ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
+            className={`transition-colors ${repeatMode !== 'off' ? 'text-green-500 hover:text-green-400' : 'text-zinc-400 hover:text-white'}`}
           >
             {repeatMode === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
           </motion.button>
         </div>
         
         {/* Progress Bar (Desktop only) */}
-        <div className="hidden md:flex w-full items-center space-x-2 mt-2">
+        <div className="flex w-full items-center space-x-2 mt-2">
           <span className="text-xs text-zinc-400 w-8 text-right">{formatTime(progress)}</span>
           <div className="flex-1 group h-3 flex items-center relative cursor-pointer" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
@@ -178,7 +205,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
       </div>
       
       {/* Mobile progress bar minimal */}
-      <div className="md:hidden absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-800">
+      <div className="md:hidden absolute bottom-0 left-0 right-0 h-[2.5px] bg-zinc-800 rounded-b-xl overflow-hidden pointer-events-none">
          <div 
            className="h-full bg-white transition-all duration-300" 
            style={{ width: `${(progress / (duration || 1)) * 100}%` }}

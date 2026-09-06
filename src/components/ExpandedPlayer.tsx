@@ -179,29 +179,37 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
       initial={{ y: "100%" }}
       animate={{ y: 0 }}
       exit={{ y: "100%" }}
-      transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      className="fixed inset-0 z-[100] bg-zinc-900 overflow-y-auto pb-8 flex flex-col pt-4"
+      transition={{ type: "spring", damping: 28, stiffness: 220 }}
+      className="fixed inset-0 z-[100] bg-gradient-to-b from-zinc-800 via-zinc-900 to-black overflow-y-auto pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-[max(2rem,env(safe-area-inset-bottom,0px))] flex flex-col select-none touch-manipulation overscroll-none"
     >
+      {/* Visual Swipe-down indicator pill */}
+      <div 
+        className="w-10 h-1.5 bg-zinc-600/70 hover:bg-zinc-500 rounded-full mx-auto my-1 cursor-pointer transition-colors"
+        onClick={onClose}
+        title="Tap or drag to dismiss"
+      />
+
       {/* Top Header */}
-      <div className="flex items-center justify-between px-6 mb-8">
+      <div className="flex items-center justify-between px-5 sm:px-6 mb-4 sm:mb-6">
         <motion.button
           whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
+          whileTap={{ scale: 0.85 }}
           onClick={onClose}
-          className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors"
+          className="p-2 -ml-2 text-white hover:bg-white/10 rounded-full transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+          title="Close player"
         >
           <ChevronDown size={28} />
         </motion.button>
-        <div className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-400">Now Playing</p>
-          <p className="text-sm font-bold text-white truncate max-w-[200px]">{currentSong.album}</p>
+        <div className="text-center min-w-0 px-2">
+          <p className="text-[10px] sm:text-xs font-bold uppercase tracking-widest text-zinc-400">Now Playing</p>
+          <p className="text-xs sm:text-sm font-bold text-white truncate max-w-[180px] sm:max-w-[240px]">{currentSong.album || 'Single'}</p>
         </div>
         <button 
            onClick={() => setShowSleepTimer(!showSleepTimer)} 
-           className={`p-2 transition-colors ${showSleepTimer ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}
+           className={`p-2 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center ${showSleepTimer ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}
            title="Sleep Timer"
         >
-           <Clock size={24} />
+           <Clock size={22} />
         </button>
       </div>
       
@@ -211,7 +219,7 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
                <button 
                   key={mins} 
                   onClick={() => { setShowSleepTimer(false); }}
-                  className="px-3 py-1 bg-zinc-800 rounded-full text-xs font-bold text-white hover:bg-zinc-700"
+                  className="px-3.5 py-1.5 bg-zinc-800 rounded-full text-xs font-bold text-white hover:bg-zinc-700 active:scale-95 transition-transform"
                >
                   {mins}m
                </button>
@@ -220,81 +228,110 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
       )}
 
       {/* Main Content */}
-      <div className="px-6 flex flex-col flex-1 max-w-md mx-auto w-full">
-        {/* Cover Art */}
+      <div className="px-5 sm:px-6 flex flex-col flex-1 max-w-md mx-auto w-full">
+        {/* Responsive Cover Art */}
         <motion.div
           animate={{ scale: isPlaying ? 1 : 0.95 }}
           transition={{ duration: 0.3 }}
-          className="w-full aspect-square mb-8 shadow-2xl rounded-xl overflow-hidden"
+          className="w-full max-w-[290px] sm:max-w-[340px] aspect-square mb-5 sm:mb-8 shadow-2xl rounded-2xl overflow-hidden mx-auto"
         >
           <img 
             src={currentSong.coverUrl || 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg'} 
             alt={currentSong.title} 
-            className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
+            className="w-full h-full object-cover shadow-inner" 
+            onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
           />
         </motion.div>
 
         {/* Title and Actions */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="overflow-hidden pr-4 flex-1">
-            <h2 className="text-2xl font-bold text-white truncate">{currentSong.title}</h2>
-            <p className="text-lg text-zinc-400 truncate">{currentSong.artist}</p>
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <div className="overflow-hidden pr-3 flex-1 min-w-0">
+            <h2 className="text-xl sm:text-2xl font-bold text-white truncate">{currentSong.title}</h2>
+            <p className="text-base sm:text-lg text-zinc-400 truncate mt-0.5">{currentSong.artist}</p>
           </div>
-          <div className="flex items-center space-x-2">
-            <button onClick={onOpenPlaylistModal} className="p-2 text-zinc-400 hover:text-white transition-colors">
-              <ListPlus size={24} />
+          <div className="flex items-center space-x-1 sm:space-x-2 flex-shrink-0">
+            <button 
+              onClick={onOpenPlaylistModal} 
+              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center text-zinc-400 hover:text-white active:scale-90 transition-transform"
+              title="Add to Playlist"
+            >
+              <ListPlus size={22} />
             </button>
-            <button onClick={handleSave} className="p-2 text-zinc-400 hover:text-white transition-colors">
-              <Heart size={24} className={isSaved ? "fill-green-500 text-green-500" : ""} />
+            <button 
+              onClick={handleSave} 
+              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center text-zinc-400 hover:text-white active:scale-90 transition-transform"
+              title={isSaved ? "Liked" : "Like Song"}
+            >
+              <Heart size={22} className={isSaved ? "fill-green-500 text-green-500" : ""} />
             </button>
           </div>
         </div>
 
-        {/* Progress Bar */}
-        <div className="mb-6">
-          <div className="group h-4 flex items-center relative cursor-pointer" onClick={(e) => {
+        {/* Progress Bar (Touch-friendly scrubber) */}
+        <div className="mb-4 sm:mb-6">
+          <div className="group h-6 flex items-center relative cursor-pointer touch-none" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            const percent = (e.clientX - rect.left) / rect.width;
+            const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
             seek(percent * duration);
           }}>
-            <div className="w-full h-1.5 bg-zinc-700 rounded-full absolute">
+            <div className="w-full h-1.5 bg-zinc-700/80 rounded-full absolute overflow-hidden">
               <div 
                 className="h-full bg-white group-hover:bg-green-500 rounded-full transition-colors"
                 style={{ width: `${(progress / (duration || 1)) * 100}%` }} 
               />
             </div>
             <div 
-              className="absolute h-3.5 w-3.5 bg-white rounded-full opacity-0 group-hover:opacity-100 shadow transition-opacity"
-              style={{ left: `calc(${(progress / (duration || 1)) * 100}% - 7px)` }} 
+              className="absolute h-4 w-4 bg-white rounded-full shadow-md transform -translate-x-1/2"
+              style={{ left: `${(progress / (duration || 1)) * 100}%` }} 
             />
           </div>
-          <div className="flex justify-between text-xs text-zinc-400 mt-2 font-mono">
+          <div className="flex justify-between text-xs text-zinc-400 mt-1 font-mono">
             <span>{formatTime(progress)}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>
 
         {/* Playback Controls */}
-        <div className="flex items-center justify-between mb-8">
-          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={toggleShuffle} className={`p-2 transition-colors ${isShuffle ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
-            <Shuffle size={24} />
+        <div className="flex items-center justify-between mb-6 sm:mb-8">
+          <motion.button 
+            whileHover={{ scale: 1.15 }} 
+            whileTap={{ scale: 0.85 }} 
+            onClick={toggleShuffle} 
+            className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ${isShuffle ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}
+          >
+            <Shuffle size={22} />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={prevSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
-            <SkipBack size={32} className="fill-current" />
+          <motion.button 
+            whileHover={{ scale: 1.15 }} 
+            whileTap={{ scale: 0.85 }} 
+            onClick={prevSong} 
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-white hover:text-zinc-300 transition-colors"
+          >
+            <SkipBack size={30} className="fill-current" />
           </motion.button>
           <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.95 }}
+            whileHover={{ scale: 1.08 }}
+            whileTap={{ scale: 0.9 }}
             onClick={togglePlay} 
-            className="w-16 h-16 flex items-center justify-center bg-white text-black rounded-full shadow-xl transition-transform"
+            className="w-16 h-16 sm:w-18 sm:h-18 flex items-center justify-center bg-white text-black rounded-full shadow-2xl transition-transform"
           >
-            {isPlaying ? <Pause size={32} className="fill-current" /> : <Play size={32} className="fill-current ml-1" />}
+            {isPlaying ? <Pause size={30} className="fill-current" /> : <Play size={30} className="fill-current ml-1" />}
           </motion.button>
-          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={nextSong} className="p-2 text-white hover:text-zinc-300 transition-colors">
-            <SkipForward size={32} className="fill-current" />
+          <motion.button 
+            whileHover={{ scale: 1.15 }} 
+            whileTap={{ scale: 0.85 }} 
+            onClick={nextSong} 
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center text-white hover:text-zinc-300 transition-colors"
+          >
+            <SkipForward size={30} className="fill-current" />
           </motion.button>
-          <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} onClick={toggleRepeat} className={`p-2 transition-colors ${repeatMode !== 'off' ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}>
-            {repeatMode === 'one' ? <Repeat1 size={24} /> : <Repeat size={24} />}
+          <motion.button 
+            whileHover={{ scale: 1.15 }} 
+            whileTap={{ scale: 0.85 }} 
+            onClick={toggleRepeat} 
+            className={`p-2 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ${repeatMode !== 'off' ? 'text-green-500' : 'text-zinc-400 hover:text-white'}`}
+          >
+            {repeatMode === 'one' ? <Repeat1 size={22} /> : <Repeat size={22} />}
           </motion.button>
         </div>
 

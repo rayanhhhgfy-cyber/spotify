@@ -136,9 +136,9 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   };
 
   return (
-    <div className="px-4 sm:px-6 py-6 pb-48 md:pb-32 animate-in fade-in duration-300">
-      <div className="flex flex-col md:flex-row items-center md:items-end space-y-6 md:space-y-0 md:space-x-6 mb-8 text-center md:text-left">
-        <div className="w-48 h-48 rounded-xl bg-zinc-800 flex items-center justify-center shadow-xl overflow-hidden group">
+    <div className="px-3.5 sm:px-6 py-4 sm:py-6 animate-in fade-in duration-300">
+      <div className="flex flex-col md:flex-row items-center md:items-end space-y-4 md:space-y-0 md:space-x-6 mb-6 sm:mb-8 text-center md:text-left">
+        <div className="w-36 h-36 sm:w-48 sm:h-48 rounded-2xl bg-zinc-800 flex items-center justify-center shadow-xl overflow-hidden group flex-shrink-0">
           {playlist.songs.length > 0 ? (
             <img 
               src={(playlist.songs[0].coverUrl || '').replace('300x300', '600x600')} 
@@ -147,77 +147,77 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
               onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }}
             />
           ) : (
-            <Music size={64} className="text-zinc-600 shadow-sm" />
+            <Music size={54} className="text-zinc-600 shadow-sm" />
           )}
         </div>
-        <div className="pb-2 flex-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-white mb-2">Playlist</p>
+        <div className="pb-2 flex-1 min-w-0 w-full">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 mb-1">Playlist</p>
           
           {isEditing ? (
-            <div className="flex items-center justify-center md:justify-start gap-2 mb-4">
+            <div className="flex items-center justify-center md:justify-start gap-2 mb-3">
               <input 
                 type="text" 
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
-                className="bg-zinc-800 text-3xl md:text-5xl font-black text-white px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 w-full max-w-md"
+                className="bg-zinc-800 text-2xl sm:text-4xl md:text-5xl font-black text-white px-3 py-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 w-full max-w-md"
                 autoFocus
                 onKeyDown={e => e.key === 'Enter' && handleRename()}
               />
-              <button onClick={handleRename} className="bg-green-500 text-black px-4 py-2 rounded-full font-bold">Save</button>
+              <button onClick={handleRename} className="bg-green-500 text-black px-4 py-2 rounded-full font-bold text-sm">Save</button>
             </div>
           ) : (
-            <div className="flex items-center justify-center md:justify-start gap-4 mb-4 group cursor-pointer" onClick={() => setIsEditing(true)}>
-              <h1 className="text-4xl md:text-7xl font-black text-white tracking-tighter hover:underline decoration-green-500">{playlist.name}</h1>
-              <Edit2 size={24} className="text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <div className="flex items-center justify-center md:justify-start gap-3 mb-2 group cursor-pointer" onClick={() => setIsEditing(true)}>
+              <h1 className="text-2xl sm:text-4xl md:text-6xl font-black text-white tracking-tight hover:underline decoration-green-500 truncate max-w-full">{playlist.name}</h1>
+              <Edit2 size={20} className="text-zinc-400 opacity-60 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0" />
             </div>
           )}
 
-          <p className="text-zinc-300 font-medium flex items-center justify-center md:justify-start space-x-2">
+          <p className="text-zinc-400 text-xs sm:text-sm font-medium flex items-center justify-center md:justify-start space-x-2">
             <span className="text-white font-bold">You</span>
             <span>•</span>
-            <span>{playlist.songs.length} songs</span>
+            <span>{playlist.songs.length} tracks</span>
           </p>
 
-          <div className="flex items-center justify-center md:justify-start space-x-4 mt-6">
+          <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 sm:gap-3 mt-4 sm:mt-6">
             {playlist.songs.length > 0 && (
               <>
                 <button
                   onClick={() => playSong(playlist.songs[0], playlist.songs)}
-                  className="w-14 h-14 rounded-full bg-green-500 text-black flex items-center justify-center hover:scale-105 transition-transform shadow-lg"
+                  className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-green-500 text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-lg touch-manipulation flex-shrink-0"
                   title="Play playlist"
                 >
-                  <Play size={26} className="fill-current ml-1" />
+                  <Play size={24} className="fill-current ml-0.5" />
                 </button>
                 <button
                   onClick={() => shufflePlay(playlist.songs)}
-                  className="flex items-center space-x-2 px-6 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700"
+                  className="flex items-center space-x-1.5 px-4 sm:px-5 py-2.5 sm:py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-white font-bold transition-all shadow-md border border-zinc-700 touch-manipulation"
                   title="Shuffle playlist"
                 >
-                  <Shuffle size={20} className="text-green-500" />
-                  <span>Shuffle</span>
+                  <Shuffle size={18} className="text-green-500" />
+                  <span className="text-xs sm:text-sm">Shuffle</span>
                 </button>
                 
                 <button
                   onClick={handleDownload}
                   disabled={isDownloading || isDownloaded || playlist.songs.length === 0}
-                  className={`flex items-center space-x-2 px-6 py-3 rounded-full font-bold hover:scale-105 transition-all shadow-md border ${
+                  className={`flex items-center space-x-1.5 px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-full font-bold transition-all shadow-md border touch-manipulation ${
                     isDownloaded 
                       ? 'bg-green-500/20 text-green-400 border-green-500/30' 
                       : isDownloading || playlist.songs.length === 0
-                        ? 'bg-zinc-800 text-green-400 border-green-500/50 opacity-50 cursor-not-allowed hover:scale-100'
-                        : 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700'
+                        ? 'bg-zinc-800 text-green-400 border-green-500/50 opacity-50 cursor-not-allowed'
+                        : 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700 active:scale-95'
                   }`}
                   title={isDownloaded ? "Downloaded" : "Download Playlist"}
                 >
                   {isDownloaded ? (
-                    <CheckCircle2 size={20} className="text-green-400" />
+                    <CheckCircle2 size={18} className="text-green-400" />
                   ) : isDownloading ? (
-                    <div className="w-5 h-5 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
+                    <div className="w-4 h-4 rounded-full border-2 border-green-500 border-t-transparent animate-spin" />
                   ) : (
-                    <Download size={20} className={isDownloaded ? "text-green-400" : "text-zinc-400"} />
+                    <Download size={18} className={isDownloaded ? "text-green-400" : "text-zinc-400"} />
                   )}
-                  <span>
-                    {isDownloaded ? 'Downloaded' : isDownloading ? `${Math.round(downloadProgress * 100)}%` : 'Download'}
+                  <span className="text-xs sm:text-sm">
+                    {isDownloaded ? 'Saved' : isDownloading ? `${Math.round(downloadProgress * 100)}%` : 'Download'}
                   </span>
                 </button>
               </>
@@ -225,20 +225,20 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
 
             <button
               onClick={() => setShowShareModal(true)}
-              className="flex items-center space-x-2 px-5 py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 text-white font-bold hover:scale-105 transition-all shadow-md border border-zinc-700 cursor-pointer group"
-              title="Share Playlist (Get permanent link for all devices)"
+              className="flex items-center space-x-1.5 px-3.5 sm:px-5 py-2.5 sm:py-3 rounded-full bg-zinc-800 hover:bg-zinc-700 active:scale-95 text-white font-bold transition-all shadow-md border border-zinc-700 cursor-pointer touch-manipulation"
+              title="Share Playlist"
             >
-              <Share2 size={18} className="text-green-400 group-hover:scale-110 transition-transform" />
-              <span className="text-sm">Share</span>
+              <Share2 size={17} className="text-green-400" />
+              <span className="text-xs sm:text-sm">Share</span>
             </button>
 
             <button
               onClick={() => setShowDeleteModal(true)}
-              className="flex items-center space-x-2 px-4 py-3 rounded-full bg-zinc-900/80 hover:bg-red-950/60 text-zinc-400 hover:text-red-400 font-medium hover:scale-105 transition-all shadow-md border border-zinc-800 hover:border-red-800/60 cursor-pointer"
+              className="flex items-center space-x-1.5 px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-full bg-zinc-900/80 hover:bg-red-950/60 active:scale-95 text-zinc-400 hover:text-red-400 font-medium transition-all shadow-md border border-zinc-800 hover:border-red-800/60 cursor-pointer touch-manipulation"
               title="Delete Playlist"
             >
-              <Trash2 size={18} />
-              <span className="text-sm">Delete</span>
+              <Trash2 size={17} />
+              <span className="text-xs sm:text-sm">Delete</span>
             </button>
           </div>
 

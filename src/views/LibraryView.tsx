@@ -163,33 +163,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   };
 
   return (
-    <div className="px-4 sm:px-6 py-6 pb-48 md:pb-32 animate-in fade-in">
-      <div className="flex gap-4 border-b border-zinc-800 mb-8 pb-2 overflow-x-auto hide-scrollbar">
+    <div className="px-3.5 sm:px-6 py-4 sm:py-6 pb-8 animate-in fade-in">
+      <div className="flex gap-2 sm:gap-3 border-b border-zinc-800/80 mb-6 pb-2 overflow-x-auto no-scrollbar select-none -mx-3.5 sm:mx-0 px-3.5 sm:px-0">
         {[
           { id: 'playlists', label: 'Playlists', icon: ListMusic },
           { id: 'liked', label: 'Liked Songs', icon: Heart },
           { id: 'stats', label: 'Stats (Wrapped)', icon: BarChart2 },
           { id: 'downloads', label: 'Downloads', icon: Download },
-          { id: 'local', label: 'Local Files / Import', icon: Folder }
+          { id: 'local', label: 'Local / Import', icon: Folder }
         ].map(tab => (
           <button 
             key={tab.id}
             onClick={() => setActiveTab(tab.id as Tab)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full font-bold transition-all whitespace-nowrap ${activeTab === tab.id ? 'bg-white text-black' : 'bg-zinc-900 text-zinc-400 hover:text-white'}`}
+            className={`flex items-center gap-1.5 sm:gap-2 px-3.5 py-2 rounded-full font-bold text-xs sm:text-sm transition-all whitespace-nowrap active:scale-95 touch-manipulation min-h-[40px] ${activeTab === tab.id ? 'bg-white text-black shadow-sm' : 'bg-zinc-900/90 text-zinc-400 hover:text-white border border-zinc-800/60'}`}
           >
-            <tab.icon size={18} className={activeTab === tab.id ? 'fill-current' : ''} />
-            {tab.label}
+            <tab.icon size={16} className={activeTab === tab.id ? 'fill-current' : ''} />
+            <span>{tab.label}</span>
           </button>
         ))}
       </div>
 
       
       {activeTab === 'playlists' && (
-        <div className="space-y-6 animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-br from-green-600 to-emerald-900 rounded-2xl p-6 sm:p-8 text-white shadow-xl">
+        <div className="space-y-4 sm:space-y-6 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-gradient-to-br from-green-600 to-emerald-900 rounded-2xl p-5 sm:p-8 text-white shadow-xl">
             <div>
-              <h2 className="text-3xl sm:text-4xl font-black tracking-tighter mb-1 sm:mb-2">Your Playlists</h2>
-              <p className="text-white/80 font-medium text-sm sm:text-lg">Your personal collections & imported music.</p>
+              <h2 className="text-2xl sm:text-4xl font-black tracking-tight mb-1">Your Playlists</h2>
+              <p className="text-white/80 font-medium text-xs sm:text-base">Personal collections & imported music.</p>
             </div>
             <div className="flex items-center gap-3">
               <button 
@@ -198,31 +198,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
                   setPlaylists(getPlaylists());
                   onViewChange(`playlist:${p.id}`);
                 }}
-                className="bg-white text-black p-3.5 sm:p-4 rounded-full hover:scale-105 transition-transform shadow-lg flex items-center justify-center"
+                className="bg-white text-black p-3 sm:p-4 rounded-full hover:scale-105 active:scale-95 transition-transform shadow-lg flex items-center justify-center touch-manipulation"
                 title="Create new playlist"
               >
-                <Plus size={22} className="fill-current" />
+                <Plus size={20} className="fill-current" />
               </button>
             </div>
           </div>
 
           {/* Quick Playlist Importer directly in Playlists Tab */}
-          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-lg">
-            <div className="flex flex-col sm:flex-row gap-3">
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3.5 sm:p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3">
               <div className="flex-1 relative">
                 <input 
                   type="text" 
-                  placeholder="Paste Spotify, Apple Music, or Share playlist link / code..."
+                  placeholder="Paste Spotify, Apple Music, or Share playlist link..."
                   value={quickImportInput}
                   onChange={e => setQuickImportInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleQuickImport()}
-                  className="w-full bg-black/80 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-green-500 placeholder:text-zinc-500"
+                  className="w-full bg-black/80 border border-zinc-700 rounded-xl px-3.5 py-2.5 sm:py-3 text-base sm:text-sm text-white focus:outline-none focus:border-green-500 placeholder:text-zinc-500"
                 />
               </div>
               <button 
                 onClick={handleQuickImport}
                 disabled={isQuickImporting || !quickImportInput.trim()}
-                className="bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-bold text-sm px-6 py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md flex-shrink-0"
+                className="bg-green-500 hover:bg-green-400 active:scale-95 disabled:opacity-50 text-black font-bold text-sm px-5 py-2.5 sm:py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md flex-shrink-0 touch-manipulation"
               >
                 {isQuickImporting ? (
                   <>
@@ -238,14 +238,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
               </button>
             </div>
             {quickImportStatus && (
-              <p className={`mt-3 text-xs sm:text-sm font-medium ${quickImportStatus.includes('Error') || quickImportStatus.includes('Could not') ? 'text-red-400' : 'text-green-400'}`}>
+              <p className={`mt-2 sm:mt-3 text-xs sm:text-sm font-medium ${quickImportStatus.includes('Error') || quickImportStatus.includes('Could not') ? 'text-red-400' : 'text-green-400'}`}>
                 {quickImportStatus}
               </p>
             )}
           </div>
           
           {playlists.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-6">
               {playlists.map(p => (
                 <div 
                   key={p.id} 

@@ -72,16 +72,16 @@ export const SearchView: React.FC<SearchViewProps> = ({ onViewChange }) => {
   };
 
   return (
-    <div className="px-4 sm:px-6 py-6 pb-48 md:pb-32 min-h-full">
-      <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-xl pt-2 pb-6 -mx-4 sm:-mx-6 px-4 sm:px-6 border-b border-transparent">
+    <div className="px-3.5 sm:px-6 py-4 sm:py-6 pb-8 min-h-full">
+      <div className="sticky top-0 z-20 bg-zinc-900/95 backdrop-blur-xl pt-1 pb-4 -mx-3.5 sm:-mx-6 px-3.5 sm:px-6 border-b border-zinc-800/40">
         <div className="relative max-w-md w-full">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <SearchIcon size={20} className="text-zinc-400" />
           </div>
           <input
             type="text"
-            className="block w-full pl-10 pr-10 py-3 bg-zinc-800 border-transparent rounded-full text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-white focus:bg-zinc-800 transition-all text-sm font-medium"
-            placeholder="Search songs, artists, or paste playlist link..."
+            className="block w-full pl-10 pr-10 py-2.5 sm:py-3 bg-zinc-800 border border-transparent focus:border-zinc-700 rounded-full text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all text-base sm:text-sm font-medium"
+            placeholder="Search songs, artists, or paste link..."
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -94,9 +94,9 @@ export const SearchView: React.FC<SearchViewProps> = ({ onViewChange }) => {
                 setQuery('');
                 setImportMessage(null);
               }}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white"
+              className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-white p-2"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           )}
         </div>
