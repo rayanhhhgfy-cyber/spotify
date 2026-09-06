@@ -16,7 +16,7 @@ export const SharePlaylistModal: React.FC<SharePlaylistModalProps> = ({
   isOpen,
   onClose,
 }) => {
-  const [selectedDomain, setSelectedDomain] = useState<'vercel' | 'current'>('vercel');
+  const [selectedDomain, setSelectedDomain] = useState<'vercel' | 'current'>('current');
   const [shareId, setShareId] = useState(playlist.shareId || '');
   const [isCopied, setIsCopied] = useState(false);
   const [isCodeCopied, setIsCodeCopied] = useState(false);

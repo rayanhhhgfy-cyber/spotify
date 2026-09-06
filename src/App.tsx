@@ -116,7 +116,7 @@ export default function App() {
               className="h-full"
             >
               {currentView === 'home' && <HomeView />}
-              {currentView === 'search' && <SearchView />}
+              {currentView === 'search' && <SearchView onViewChange={setCurrentView} />}
               {currentView === 'library' && <LibraryView onViewChange={setCurrentView} />}
               {currentView === 'discover' && <DiscoverView />}
               {currentView === 'queue' && <QueueView />}

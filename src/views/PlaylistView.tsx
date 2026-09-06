@@ -20,7 +20,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatusText, setDownloadStatusText] = useState('');
   const [isDownloaded, setIsDownloaded] = useState(false);
-  const { playSong, shufflePlay } = usePlayer();
+  const { playSong, shufflePlay, currentSong, isPlaying } = usePlayer();
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
 
   useEffect(() => {
@@ -136,7 +136,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   };
 
   return (
-    <div className="px-6 py-8 pb-32 animate-in fade-in duration-300">
+    <div className="px-4 sm:px-6 py-6 pb-48 md:pb-32 animate-in fade-in duration-300">
       <div className="flex flex-col md:flex-row items-center md:items-end space-y-6 md:space-y-0 md:space-x-6 mb-8 text-center md:text-left">
         <div className="w-48 h-48 rounded-xl bg-zinc-800 flex items-center justify-center shadow-xl overflow-hidden group">
           {playlist.songs.length > 0 ? (
@@ -253,34 +253,92 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
       <div className="mb-8">
          {playlist.songs.length > 0 ? (
             <div className="flex flex-col space-y-1">
-              {playlist.songs.map((song, idx) => (
-                <div 
-                  key={`${song.id}-${idx}`}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, idx)}
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                  onDrop={(e) => handleDrop(e, idx)}
-                  className={`flex items-center p-3 rounded-md hover:bg-white/10 transition-colors group cursor-grab active:cursor-grabbing ${draggedIdx === idx ? 'opacity-50 border-t-2 border-green-500' : 'opacity-100'}`}
-                >
-                  <div className="w-8 text-zinc-500 flex items-center justify-center mr-2">
-                    <span className="group-hover:hidden">{idx + 1}</span>
-                    <GripVertical size={16} className="hidden group-hover:block" />
+              {playlist.songs.map((song, idx) => {
+                const isCurrent = currentSong?.id === song.id;
+                return (
+                  <div 
+                    key={`${song.id}-${idx}`}
+                    onClick={() => playSong(song, playlist.songs)}
+                    className={`flex items-center p-2.5 sm:p-3 rounded-lg hover:bg-white/10 active:bg-white/15 transition-colors group cursor-pointer select-none ${
+                      isCurrent ? 'bg-zinc-800/80 border border-green-500/30' : ''
+                    } ${draggedIdx === idx ? 'opacity-50 border-t-2 border-green-500' : 'opacity-100'}`}
+                  >
+                    {/* Index or Grip */}
+                    <div 
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        handleDragStart(e, idx);
+                      }}
+                      onDragOver={(e) => { 
+                        e.preventDefault(); 
+                        e.dataTransfer.dropEffect = 'move'; 
+                      }}
+                      onDrop={(e) => {
+                        e.stopPropagation();
+                        handleDrop(e, idx);
+                      }}
+                      className="w-8 text-zinc-400 flex items-center justify-center mr-2 cursor-grab active:cursor-grabbing flex-shrink-0"
+                      title="Drag to reorder"
+                    >
+                      {isCurrent && isPlaying ? (
+                        <div className="w-4 h-4 flex items-end justify-center space-x-[2px] overflow-hidden">
+                          <div className="w-1 bg-green-500 animate-[bounce_1s_infinite_0s]" style={{height: '60%'}}></div>
+                          <div className="w-1 bg-green-500 animate-[bounce_1s_infinite_0.2s]" style={{height: '100%'}}></div>
+                          <div className="w-1 bg-green-500 animate-[bounce_1s_infinite_0.4s]" style={{height: '80%'}}></div>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="group-hover:hidden text-xs sm:text-sm">{idx + 1}</span>
+                          <GripVertical size={16} className="hidden group-hover:block text-zinc-400" />
+                        </>
+                      )}
+                    </div>
+
+                    {/* Cover Art */}
+                    <img 
+                      src={song.coverUrl} 
+                      alt={song.title} 
+                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-md mr-3 object-cover flex-shrink-0 shadow-sm" 
+                      onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} 
+                    />
+
+                    {/* Title & Artist */}
+                    <div className="flex-1 min-w-0 pr-2">
+                      <p className={`font-medium truncate text-sm sm:text-base ${isCurrent ? 'text-green-500 font-semibold' : 'text-white'}`}>
+                        {song.title}
+                      </p>
+                      <p className="text-xs sm:text-sm text-zinc-400 truncate hover:underline">
+                        {song.artist}
+                      </p>
+                    </div>
+
+                    {/* Actions (visible on mobile, hover on desktop) */}
+                    <div className="flex items-center space-x-1 sm:space-x-3 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playSong(song, playlist.songs);
+                        }} 
+                        className="p-2 hover:text-green-400 text-zinc-300 transition-colors"
+                        title={isCurrent && isPlaying ? "Playing" : "Play"}
+                      >
+                        <Play size={18} className={isCurrent && isPlaying ? "fill-green-500 text-green-500" : "fill-current"} />
+                      </button>
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSong(song.id);
+                        }} 
+                        className="p-2 hover:text-red-400 text-zinc-400 transition-colors"
+                        title="Remove from playlist"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
                   </div>
-                  <img src={song.coverUrl} alt={song.title} className="w-10 h-10 rounded mr-4 object-cover" onError={(e) => { e.currentTarget.src = 'https://upload.wikimedia.org/wikipedia/commons/1/19/Spotify_logo_without_text.svg' }} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium truncate">{song.title}</p>
-                    <p className="text-sm text-zinc-400 truncate">{song.artist}</p>
-                  </div>
-                  <div className="flex items-center space-x-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => playSong(song, playlist.songs)} className="p-2 hover:text-green-500 text-zinc-300 transition-colors">
-                      <Play size={20} className="fill-current" />
-                    </button>
-                    <button onClick={() => handleDeleteSong(song.id)} className="p-2 hover:text-red-500 text-zinc-400 transition-colors">
-                      <Trash2 size={20} />
-                    </button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
          ) : (
             <div className="text-center py-20 bg-zinc-900/50 rounded-xl border border-zinc-800">

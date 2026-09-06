@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, importSharedPlaylist, addSongToPlaylist, createPlaylist, getPlaylists, deletePlaylist } from '../api';
+import { getSavedSongs, getListeningStats, getDownloadedSongs, importSpotifyPlaylist, importSharedPlaylist, importAnyPlaylist, addSongsToPlaylist, addSongToPlaylist, createPlaylist, getPlaylists, deletePlaylist } from '../api';
 import { Song, Playlist } from '../types';
 import { TrackList } from '../components/TrackList';
-import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic, Trash2, Share2, Sparkles } from 'lucide-react';
+import { Heart, Download, BarChart2, Folder, Plus, Link as LinkIcon, Music, ListMusic, Trash2, Share2, Sparkles, ArrowRight } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 
 type Tab = 'playlists' | 'liked' | 'stats' | 'downloads' | 'local';
@@ -20,6 +20,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   const [spotifyUrl, setSpotifyUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [quickImportInput, setQuickImportInput] = useState('');
+  const [isQuickImporting, setIsQuickImporting] = useState(false);
+  const [quickImportStatus, setQuickImportStatus] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { playSong } = usePlayer();
@@ -47,12 +50,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   const [isImportingShare, setIsImportingShare] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
 
-  const handleSpotifyImport = async () => {
-    const raw = spotifyUrl.trim();
+  const handleSpotifyImport = async (overrideUrl?: string) => {
+    const raw = (overrideUrl || spotifyUrl).trim();
     if (!raw) return;
 
     // If user pasted a Spotify Clone share link or code here, automatically route to share importer
-    if (raw.includes('share=') || raw.startsWith('pl_')) {
+    if (raw.includes('share=') || raw.startsWith('pl_') || raw.includes('#d=') || raw.includes('?data=')) {
       handleSharedPlaylistImport(raw);
       return;
     }
@@ -62,15 +65,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
     try {
       const result = await importSpotifyPlaylist(raw);
       if (result && result.songs && result.songs.length > 0) {
-        const p = createPlaylist(result.name || "Imported Playlist");
-        result.songs.forEach(s => addSongToPlaylist(p.id, s));
+        const p = createPlaylist(result.name || "Imported Playlist", result.coverUrl);
+        addSongsToPlaylist(p.id, result.songs);
         setPlaylists(getPlaylists());
         setSpotifyUrl('');
         setImportStatus(`Successfully imported "${result.name}" with ${result.songs.length} tracks!`);
         setTimeout(() => {
           setImportStatus(null);
           onViewChange(`playlist:${p.id}`);
-        }, 1200);
+        }, 1000);
       } else {
         setImportStatus('No matching songs found from this link. Try another playlist URL.');
       }
@@ -79,6 +82,32 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
       setImportStatus('Failed to import playlist. Please verify the URL.');
     }
     setIsImporting(false);
+  };
+
+  const handleQuickImport = async () => {
+    const raw = quickImportInput.trim();
+    if (!raw) return;
+
+    setIsQuickImporting(true);
+    setQuickImportStatus('Importing playlist...');
+    try {
+      const imported = await importAnyPlaylist(raw);
+      if (imported && imported.songs && imported.songs.length >= 0) {
+        setPlaylists(getPlaylists());
+        setQuickImportInput('');
+        setQuickImportStatus(`Imported "${imported.name}" with ${imported.songs.length} tracks!`);
+        setTimeout(() => {
+          setQuickImportStatus(null);
+          onViewChange(`playlist:${imported.id}`);
+        }, 1000);
+      } else {
+        setQuickImportStatus('Could not import playlist. Check the link and try again.');
+      }
+    } catch (e) {
+      console.error('Quick import error:', e);
+      setQuickImportStatus('Error importing playlist.');
+    }
+    setIsQuickImporting(false);
   };
 
   const handleSharedPlaylistImport = async (overrideInput?: string) => {
@@ -134,7 +163,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   };
 
   return (
-    <div className="px-6 py-8 pb-32 animate-in fade-in">
+    <div className="px-4 sm:px-6 py-6 pb-48 md:pb-32 animate-in fade-in">
       <div className="flex gap-4 border-b border-zinc-800 mb-8 pb-2 overflow-x-auto hide-scrollbar">
         {[
           { id: 'playlists', label: 'Playlists', icon: ListMusic },
@@ -156,34 +185,74 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
 
       
       {activeTab === 'playlists' && (
-        <div className="space-y-8 animate-in fade-in">
-          <div className="flex items-center justify-between bg-gradient-to-br from-green-600 to-emerald-900 rounded-2xl p-8 text-white shadow-xl">
+        <div className="space-y-6 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-br from-green-600 to-emerald-900 rounded-2xl p-6 sm:p-8 text-white shadow-xl">
             <div>
-              <h2 className="text-4xl font-black tracking-tighter mb-2">Your Playlists</h2>
-              <p className="text-white/80 font-medium text-lg">Your personal collections.</p>
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tighter mb-1 sm:mb-2">Your Playlists</h2>
+              <p className="text-white/80 font-medium text-sm sm:text-lg">Your personal collections & imported music.</p>
             </div>
-            <button 
-              onClick={() => {
-                const p = createPlaylist(`My Playlist #${playlists.length + 1}`);
-                setPlaylists(getPlaylists());
-                onViewChange(`playlist:${p.id}`);
-              }}
-              className="bg-white text-black p-4 rounded-full hover:scale-105 transition-transform shadow-lg"
-              title="Create new playlist"
-            >
-              <Plus size={24} className="fill-current" />
-            </button>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => {
+                  const p = createPlaylist(`My Playlist #${playlists.length + 1}`);
+                  setPlaylists(getPlaylists());
+                  onViewChange(`playlist:${p.id}`);
+                }}
+                className="bg-white text-black p-3.5 sm:p-4 rounded-full hover:scale-105 transition-transform shadow-lg flex items-center justify-center"
+                title="Create new playlist"
+              >
+                <Plus size={22} className="fill-current" />
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Playlist Importer directly in Playlists Tab */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-lg">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="flex-1 relative">
+                <input 
+                  type="text" 
+                  placeholder="Paste Spotify, Apple Music, or Share playlist link / code..."
+                  value={quickImportInput}
+                  onChange={e => setQuickImportInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleQuickImport()}
+                  className="w-full bg-black/80 border border-zinc-700 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-green-500 placeholder:text-zinc-500"
+                />
+              </div>
+              <button 
+                onClick={handleQuickImport}
+                disabled={isQuickImporting || !quickImportInput.trim()}
+                className="bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-bold text-sm px-6 py-3 rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md flex-shrink-0"
+              >
+                {isQuickImporting ? (
+                  <>
+                    <div className="animate-spin h-4 w-4 border-2 border-black border-t-transparent rounded-full" />
+                    <span>Importing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} />
+                    <span>Import Playlist</span>
+                  </>
+                )}
+              </button>
+            </div>
+            {quickImportStatus && (
+              <p className={`mt-3 text-xs sm:text-sm font-medium ${quickImportStatus.includes('Error') || quickImportStatus.includes('Could not') ? 'text-red-400' : 'text-green-400'}`}>
+                {quickImportStatus}
+              </p>
+            )}
           </div>
           
           {playlists.length > 0 ? (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
               {playlists.map(p => (
                 <div 
                   key={p.id} 
                   onClick={() => onViewChange(`playlist:${p.id}`)}
-                  className="relative bg-zinc-900/50 hover:bg-zinc-800 transition-all p-4 rounded-xl cursor-pointer group border border-zinc-800/40 hover:border-zinc-700 shadow-md"
+                  className="relative bg-zinc-900/50 hover:bg-zinc-800 transition-all p-3 sm:p-4 rounded-xl cursor-pointer group border border-zinc-800/40 hover:border-zinc-700 shadow-md"
                 >
-                  <div className="w-full aspect-square bg-zinc-800 rounded-md mb-4 flex items-center justify-center overflow-hidden shadow-md relative">
+                  <div className="w-full aspect-square bg-zinc-800 rounded-md mb-3 sm:mb-4 flex items-center justify-center overflow-hidden shadow-md relative">
                     {p.songs.length > 0 ? (
                       <img src={p.songs[0].coverUrl} alt="Cover" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                     ) : (
@@ -196,20 +265,21 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
                           deletePlaylist(p.id);
                         }
                       }}
-                      className="absolute top-2 right-2 p-2 rounded-full bg-black/70 hover:bg-red-600 text-zinc-300 hover:text-white opacity-0 group-hover:opacity-100 transition-all backdrop-blur-sm shadow-md"
+                      className="absolute top-2 right-2 p-1.5 sm:p-2 rounded-full bg-black/70 hover:bg-red-600 text-zinc-300 hover:text-white opacity-80 md:opacity-0 md:group-hover:opacity-100 transition-all backdrop-blur-sm shadow-md"
                       title="Delete Playlist"
                     >
                       <Trash2 size={16} />
                     </button>
                   </div>
-                  <h3 className="text-white font-bold truncate">{p.name}</h3>
-                  <p className="text-sm text-zinc-400">{p.songs.length} songs</p>
+                  <h3 className="text-white font-bold truncate text-sm sm:text-base">{p.name}</h3>
+                  <p className="text-xs sm:text-sm text-zinc-400">{p.songs.length} songs</p>
                 </div>
               ))}
             </div>
           ) : (
-             <div className="text-center py-20 bg-zinc-900/50 rounded-xl border border-zinc-800">
-                <p className="text-zinc-400 font-medium">You haven't created any playlists yet.</p>
+             <div className="text-center py-16 sm:py-20 bg-zinc-900/50 rounded-xl border border-zinc-800">
+                <p className="text-zinc-400 font-medium">You haven't created or imported any playlists yet.</p>
+                <p className="text-xs text-zinc-500 mt-1">Paste a playlist link above to import one instantly!</p>
              </div>
           )}
         </div>

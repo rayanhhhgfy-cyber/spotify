@@ -124,88 +124,18 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
 export const searchSongs = async (query: string): Promise<Song[]> => {
   if (!query.trim()) return [];
 
-  // 1. Primary Source: Backend search providing full-length songs (YouTube + Audius)
   try {
     const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
     if (res.ok) {
       const data = await res.json();
-      if (data && Array.isArray(data.songs) && data.songs.length > 0) {
+      if (data && Array.isArray(data.songs)) {
         return data.songs;
       }
     }
   } catch (e) {
-    console.warn('Backend search failed, using client fallback:', e);
+    console.warn('Backend search failed', e);
   }
-
-  const results: Song[] = [];
-
-  // 2. Fallback: Search Audius decentralized catalog for full-length 320kbps streams
-  for (const node of AUDIUS_DISCOVERY_NODES) {
-    try {
-      const res = await fetch(`${node}/v1/tracks/search?query=${encodeURIComponent(query)}&app_name=SPOTIFY_CLONE`);
-      if (!res.ok) continue;
-      const data = await res.json();
-      if (data && Array.isArray(data.data) && data.data.length > 0) {
-        const audiusSongs = data.data
-          .filter((r: any) => r.stream?.url || r.stream_url || r.is_streamable || r.id)
-          .map(formatAudiusSong);
-        results.push(...audiusSongs);
-        break;
-      }
-    } catch (e) {
-      console.warn(`Search error on node ${node}:`, e);
-    }
-  }
-
-  // 3. Search iTunes catalog for metadata & attach matching full streams
-  try {
-    const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.results)) {
-        const iTunesSongs = await Promise.all(data.results.map(async (r: any) => {
-          const song = formatITunesSong(r);
-
-          const matchingAudius = results.find(s =>
-            s.title.toLowerCase() === song.title.toLowerCase() &&
-            s.artist.toLowerCase() === song.artist.toLowerCase()
-          );
-          if (matchingAudius) {
-            song.audioUrl = matchingAudius.audioUrl;
-            song.streamMirrors = matchingAudius.streamMirrors;
-            song.duration = r.trackTimeMillis || matchingAudius.duration;
-            song.isFullLength = true;
-          } else {
-            const fullStream = await resolveFullLengthStream(song.title, song.artist);
-            if (fullStream) {
-              if (fullStream.youtubeId) {
-                song.youtubeId = fullStream.youtubeId;
-              }
-              if (fullStream.audioUrl) {
-                song.audioUrl = fullStream.audioUrl;
-                song.streamMirrors = fullStream.mirrors;
-              }
-              song.duration = r.trackTimeMillis || fullStream.duration || 210000;
-              song.isFullLength = true;
-            }
-          }
-          return song;
-        }));
-        results.push(...iTunesSongs);
-      }
-    }
-  } catch (e) {
-    console.warn("iTunes Search error:", e);
-  }
-
-  // Deduplicate results by title+artist
-  const seen = new Set<string>();
-  return results.filter(s => {
-    const key = `${s.title.toLowerCase()}-${s.artist.toLowerCase()}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  return [];
 };
 
 export const getSavedSongs = (): Song[] => {
@@ -354,11 +284,12 @@ const notifyPlaylistsChanged = () => {
   }
 };
 
-export const createPlaylist = (name: string): Playlist => {
+export const createPlaylist = (name: string, coverUrl?: string): Playlist => {
   const playlists = getPlaylists();
   const newPlaylist: Playlist = {
     id: Date.now().toString(),
     name,
+    coverUrl: coverUrl || '',
     songs: []
   };
   playlists.push(newPlaylist);
@@ -367,12 +298,34 @@ export const createPlaylist = (name: string): Playlist => {
   return newPlaylist;
 };
 
+export const addSongsToPlaylist = (playlistId: string, songsToAdd: Song[]) => {
+  const playlists = getPlaylists();
+  const playlist = playlists.find(p => p.id === playlistId);
+  if (playlist) {
+    const existingIds = new Set(playlist.songs.map(s => s.id));
+    for (const s of songsToAdd) {
+      if (!existingIds.has(s.id)) {
+        playlist.songs.push(s);
+        existingIds.add(s.id);
+      }
+    }
+    if (!playlist.coverUrl && playlist.songs[0]?.coverUrl) {
+      playlist.coverUrl = playlist.songs[0].coverUrl;
+    }
+    localStorage.setItem('playlists', JSON.stringify(playlists));
+    notifyPlaylistsChanged();
+  }
+};
+
 export const addSongToPlaylist = (playlistId: string, song: Song) => {
   const playlists = getPlaylists();
   const playlist = playlists.find(p => p.id === playlistId);
   if (playlist) {
     if (!playlist.songs.some(s => s.id === song.id)) {
       playlist.songs.push(song);
+      if (!playlist.coverUrl && song.coverUrl) {
+        playlist.coverUrl = song.coverUrl;
+      }
       localStorage.setItem('playlists', JSON.stringify(playlists));
       notifyPlaylistsChanged();
     }
@@ -924,7 +877,7 @@ export const getDiscoverReelSongs = async (count: number = 1000): Promise<Song[]
   return Array.from(songsMap.values());
 };
 
-export const importSpotifyPlaylist = async (url: string): Promise<{ name: string; songs: Song[] }> => {
+export const importSpotifyPlaylist = async (url: string): Promise<{ name: string; songs: Song[]; coverUrl?: string }> => {
   if (!url || !url.trim()) return { name: 'Imported Playlist', songs: [] };
 
   try {
@@ -939,6 +892,7 @@ export const importSpotifyPlaylist = async (url: string): Promise<{ name: string
       if (data && Array.isArray(data.songs) && data.songs.length > 0) {
         return {
           name: data.name || 'Imported Playlist',
+          coverUrl: data.coverUrl || (data.songs[0]?.coverUrl || ''),
           songs: data.songs
         };
       }
@@ -952,8 +906,47 @@ export const importSpotifyPlaylist = async (url: string): Promise<{ name: string
   const fallbackResults = await searchSongs(cleanTerm || 'Top Chart Hits');
   return {
     name: cleanTerm ? `Import: ${cleanTerm}` : 'Imported Playlist',
+    coverUrl: fallbackResults[0]?.coverUrl || '',
     songs: fallbackResults.slice(0, 15)
   };
+};
+
+/**
+ * Universal importer for any playlist link or code:
+ * Supports Spotify, YouTube, Apple Music, Spotify Clone share links, and share IDs.
+ */
+export const importAnyPlaylist = async (input: string): Promise<Playlist | null> => {
+  if (!input || !input.trim()) return null;
+  const raw = input.trim();
+
+  // 1. If it's a clone share link or shareId
+  if (raw.includes('share=') || raw.includes('shared_playlist=') || raw.startsWith('pl_') || raw.includes('#d=') || raw.includes('?data=')) {
+    const shared = await importSharedPlaylist(raw);
+    if (shared && shared.songs && shared.songs.length >= 0) {
+      return shared;
+    }
+  }
+
+  // 2. Try backend importer (Spotify, Apple Music, YouTube)
+  try {
+    const result = await importSpotifyPlaylist(raw);
+    if (result && result.songs && result.songs.length > 0) {
+      const newPlaylist = createPlaylist(result.name || 'Imported Playlist', result.coverUrl);
+      addSongsToPlaylist(newPlaylist.id, result.songs);
+      const all = getPlaylists();
+      return all.find(p => p.id === newPlaylist.id) || newPlaylist;
+    }
+  } catch (e) {
+    console.warn('Universal import backend error:', e);
+  }
+
+  // 3. Try importSharedPlaylist fallback
+  const sharedFallback = await importSharedPlaylist(raw);
+  if (sharedFallback && sharedFallback.songs && sharedFallback.songs.length > 0) {
+    return sharedFallback;
+  }
+
+  return null;
 };
 
 export const recordPlay = (song: Song) => {
