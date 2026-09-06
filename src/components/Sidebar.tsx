@@ -49,7 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
           <span>Spotify Clone</span>
         </div>
         <span className="text-[10px] font-mono font-bold bg-zinc-800 text-zinc-300 border border-zinc-700/60 px-2 py-0.5 rounded-full shadow-sm">
-          v2.4
+          v2.5
         </span>
       </div>
       
@@ -124,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
         <PWAInstallButton variant="sidebar" />
         <div className="flex items-center justify-between px-1 text-[11px] text-zinc-500 font-medium">
           <span>Spotify Web Player</span>
-          <span className="font-mono text-zinc-400 font-semibold bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">v2.4</span>
+          <span className="font-mono text-zinc-400 font-semibold bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">v2.5</span>
         </div>
       </div>
     </div>

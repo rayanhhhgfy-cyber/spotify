@@ -69,25 +69,31 @@ function saveSharedPlaylistToDisk(id: string, playlistData: any) {
 
 // Format YouTube search results into unified Song format
 function formatYtVideo(v: ytSearch.VideoSearchResult) {
+  const streamUrl = `/api/stream/youtube/${v.videoId}`;
   return {
     id: `yt-${v.videoId}`,
     title: v.title.replace(/\s*(\[Official.*?\]|\(Official.*?\)|Official Video|Official Audio|فيديو كليب|النسخة الأصلية|حصرياً|\(Audio\))\s*/gi, '').trim(),
     artist: v.author?.name ? v.author.name.replace(/\s*-\s*Topic$/i, '').trim() : 'Unknown Artist',
     album: 'Single',
     coverUrl: v.thumbnail || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-    audioUrl: '', // played via YouTube audio engine
+    audioUrl: streamUrl,
+    streamMirrors: [streamUrl],
     duration: (v.seconds || 180) * 1000,
     youtubeId: v.videoId,
     isFullLength: true,
   };
 }
 
-// 1. Search endpoint: searches YouTube + Audius with full song support
+// 1. Search endpoint: searches YouTube + Audius + iTunes with full song support
 app.get('/api/search', async (req, res) => {
   const query = (req.query.q as string || '').trim();
   if (!query) return res.json({ songs: [] });
   try {
-    const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=15`)
+    const ytPromise = ytSearch(query)
+      .then(r => (r.videos || []).slice(0, 10).map(formatYtVideo))
+      .catch(() => []);
+
+    const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=10`)
       .then(async r => {
         if (!r.ok) return [];
         const data = await r.json();
@@ -114,7 +120,7 @@ app.get('/api/search', async (req, res) => {
         if (!r.ok) return [];
         const data = await r.json();
         if (!data || !Array.isArray(data.data)) return [];
-        return data.data.slice(0, 10).map((item) => {
+        return data.data.slice(0, 5).map((item) => {
           const trackId = item.id || item.track_id;
           const art = item.artwork ? (item.artwork['480x480'] || item.artwork['150x150'] || item.artwork['1000x1000']) : null;
           return {
@@ -132,8 +138,8 @@ app.get('/api/search', async (req, res) => {
         });
       }).catch(() => []);
 
-    const [itunesSongs, audiusSongs] = await Promise.all([itunesPromise, audiusPromise]);
-    const combined = [...itunesSongs, ...audiusSongs];
+    const [ytSongs, itunesSongs, audiusSongs] = await Promise.all([ytPromise, itunesPromise, audiusPromise]);
+    const combined = [...ytSongs, ...itunesSongs, ...audiusSongs];
 
     const seen = new Set();
     const unique = combined.filter(song => {

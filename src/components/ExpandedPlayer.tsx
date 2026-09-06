@@ -456,10 +456,10 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
           )}
         </div>
 
-        {/* Bottom Version Indicator v2.4 */}
+        {/* Bottom Version Indicator v2.5 */}
         <div className="flex items-center justify-center gap-2 pt-6 pb-2 text-[11px] text-zinc-500 font-medium">
           <span>Spotify Web Player</span>
-          <span className="font-mono text-zinc-300 font-bold bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">v2.4</span>
+          <span className="font-mono text-zinc-300 font-bold bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">v2.5</span>
         </div>
       </div>
     </motion.div>,

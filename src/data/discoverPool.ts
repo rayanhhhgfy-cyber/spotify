@@ -50,7 +50,7 @@ export const DISCOVER_ARTISTS_AND_TAGS = [
 ];
 
 // 100+ Pre-populated curated tracks with high-res artwork, real YouTube audio IDs and metadata
-export const INITIAL_DISCOVER_SONGS: Song[] = [
+const RAW_DISCOVER_SONGS: Song[] = [
   {
     id: 'yt-kJQP7kiw5Fk',
     title: 'Despacito',
@@ -723,3 +723,12 @@ export const INITIAL_DISCOVER_SONGS: Song[] = [
     isFullLength: true,
   }
 ];
+
+export const INITIAL_DISCOVER_SONGS: Song[] = RAW_DISCOVER_SONGS.map(s => {
+  const streamUrl = s.audioUrl || '';
+  return {
+    ...s,
+    audioUrl: streamUrl,
+    streamMirrors: streamUrl ? [streamUrl] : []
+  };
+});

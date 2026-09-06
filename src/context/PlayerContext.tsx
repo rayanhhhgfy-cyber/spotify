@@ -62,7 +62,20 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   }, [currentSong]);
 
   // Keep iOS / Android / Desktop audio session actively authorized in background
+  const applyAudioSessionPlayback = () => {
+    if (typeof navigator !== 'undefined' && 'audioSession' in navigator) {
+      try {
+        (navigator as any).audioSession.type = 'playback';
+      } catch (e) {}
+    }
+  };
+
+  useEffect(() => {
+    applyAudioSessionPlayback();
+  }, []);
+
   const ensureAudioSessionActive = () => {
+    applyAudioSessionPlayback();
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) {
@@ -142,6 +155,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   // Handle visibility changes (phone locked / closed / tab backgrounded on iPhone, Android, Windows, Mac)
   useEffect(() => {
     const handleVisibilityChange = () => {
+      applyAudioSessionPlayback();
       if (document.visibilityState === 'hidden') {
         // App backgrounded or phone locked: Ensure background audio session stays active
         if (isPlayingRef.current) {
@@ -164,7 +178,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', applyAudioSessionPlayback);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', applyAudioSessionPlayback);
+    };
   }, []);
 
   // Initialize YouTube IFrame API
@@ -310,34 +328,33 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const handleAudioError = () => {
     if (!currentSongRef.current) return;
     const song = currentSongRef.current;
-    const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : [song.audioUrl];
+    const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : (song.audioUrl ? [song.audioUrl] : []);
 
     if (currentMirrorIndexRef.current + 1 < candidates.length) {
       currentMirrorIndexRef.current += 1;
       const nextUrl = candidates[currentMirrorIndexRef.current];
-      if (nextUrl && audioRef.current) {
+      if (nextUrl && audioRef.current && nextUrl !== audioRef.current.src) {
         audioRef.current.src = nextUrl;
-        audioRef.current.load();
         safePlay();
         return;
       }
     }
 
-    // If direct audio stream failed and song has a youtubeId, fallback to YouTube engine
-    if (song.youtubeId && navigator.onLine) {
-      console.log(`Audio stream failed for "${song.title}", switching to YouTube engine fallback`);
-      setActiveEngine('youtube');
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      setIsPlaying(true);
-      if (ytPlayerRef.current?.loadVideoById) {
-        try {
-          ytPlayerRef.current.loadVideoById(song.youtubeId);
-          ytPlayerRef.current.playVideo();
-          return;
-        } catch (e) {}
-      }
+    // If current stream failed and was empty or youtube stream proxy, attempt dynamic direct resolution via Audius/iTunes
+    if (!song.audioUrl || song.audioUrl.startsWith('/api/stream/youtube')) {
+      resolveFullLengthStream(song.title, song.artist).then(resolved => {
+        if (resolved && resolved.audioUrl && audioRef.current && currentSongRef.current?.id === song.id) {
+          song.audioUrl = resolved.audioUrl;
+          song.streamMirrors = resolved.mirrors && resolved.mirrors.length > 0 ? resolved.mirrors : [resolved.audioUrl];
+          audioRef.current.src = resolved.audioUrl;
+          safePlay();
+        } else {
+          handlersRef.current.nextSong();
+        }
+      }).catch(() => {
+        handlersRef.current.nextSong();
+      });
+      return;
     }
 
     console.warn(`All stream sources for "${song.title}" were unavailable. Skipping to next song.`);
@@ -345,43 +362,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const handleYouTubePlaybackError = (_errorCode?: any) => {
-    const song = currentSongRef.current;
-    if (!song) return;
-
-    // 1. If backup YouTube IDs are available for the exact same track, try them
-    if (song.backupYoutubeIds && song.backupYoutubeIds.length > 0) {
-      const nextYtId = song.backupYoutubeIds.shift();
-      if (nextYtId) {
-        console.log(`Trying alternate video for "${song.title}": ${nextYtId}`);
-        song.youtubeId = nextYtId;
-        if (ytPlayerRef.current?.loadVideoById) {
-          try {
-            ytPlayerRef.current.loadVideoById(nextYtId);
-            ytPlayerRef.current.playVideo();
-            return;
-          } catch (e) {
-            console.warn('Backup YT play error:', e);
-          }
-        }
-      }
-    }
-
-    // 2. Fallback to HTML5 audio stream if valid mirror exists
-    const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : (song.audioUrl ? [song.audioUrl] : []);
-    const validStream = candidates.find(c => c && !c.startsWith('/api/stream/youtube'));
-    if (validStream) {
-      console.log(`Falling back to audio stream for "${song.title}"`);
-      setActiveEngine('audio');
-      if (audioRef.current) {
-        audioRef.current.src = validStream;
-        audioRef.current.load();
-        safePlay();
-        return;
-      }
-    }
-
-    // 3. Only if all alternatives for this song fail, move to next
-    console.warn(`Could not play "${song.title}", advancing to next track`);
+    // If YouTube iframe was used, keep player advancing
     handlersRef.current.nextSong();
   };
 
@@ -419,24 +400,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     let targetSong = { ...song };
 
-    // Resolve full-length stream if no youtubeId or if it has an iTunes 30s preview
-    const is30sPreview = !targetSong.youtubeId && (
-      !targetSong.audioUrl ||
-      targetSong.id.startsWith('itunes-') ||
-      targetSong.duration <= 30000 ||
-      (targetSong.audioUrl && (targetSong.audioUrl.includes('apple.com') || targetSong.audioUrl.includes('mzstatic')))
-    );
+    // Resolve direct stream if missing or if pointing to local /api/stream/youtube which may require resolution
+    const needsResolution = !targetSong.audioUrl || targetSong.audioUrl.startsWith('/api/stream/youtube') || targetSong.duration <= 30000;
 
-    if (is30sPreview || !targetSong.youtubeId) {
+    if (needsResolution) {
       const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist);
-      if (resolved) {
+      if (resolved && resolved.audioUrl) {
+        targetSong.audioUrl = resolved.audioUrl;
+        targetSong.streamMirrors = resolved.mirrors && resolved.mirrors.length > 0 ? resolved.mirrors : [resolved.audioUrl];
         if (resolved.youtubeId) {
           targetSong.youtubeId = resolved.youtubeId;
           targetSong.backupYoutubeIds = resolved.backupYoutubeIds || [];
-        }
-        if (resolved.audioUrl && !resolved.audioUrl.startsWith('/api/stream/youtube')) {
-          targetSong.audioUrl = resolved.audioUrl;
-          targetSong.streamMirrors = resolved.mirrors;
         }
         if (resolved.duration) {
           targetSong.duration = resolved.duration;
@@ -452,52 +426,80 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       targetSong.audioUrl = `/api/stream/youtube/${targetSong.youtubeId}`;
     }
 
-    // 1. If song has youtubeId, configure audio stream endpoint and mirrors
     if (targetSong.youtubeId) {
       const streamEndpoint = `/api/stream/youtube/${targetSong.youtubeId}`;
-      if (!targetSong.audioUrl || targetSong.audioUrl.includes('apple.com') || targetSong.audioUrl.includes('mzstatic')) {
+      if (!targetSong.audioUrl) {
         targetSong.audioUrl = streamEndpoint;
       }
       const existingMirrors = targetSong.streamMirrors || [];
       const backupMirrors = (targetSong.backupYoutubeIds || []).map(bId => `/api/stream/youtube/${bId}`);
-      targetSong.streamMirrors = Array.from(new Set([targetSong.audioUrl, streamEndpoint, ...existingMirrors, ...backupMirrors]));
+      targetSong.streamMirrors = Array.from(new Set([targetSong.audioUrl, ...existingMirrors, streamEndpoint, ...backupMirrors]));
     }
 
-    // 2. PRIMARY: HTML5 Audio Engine for continuous 24/7 background playback across iPhone, Android, Windows, Mac, Linux
     setActiveEngine('audio');
     if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
       try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
     }
     userInitiatedPauseRef.current = false;
     setIsPlaying(true);
+    isPlayingRef.current = true;
 
     if (audioRef.current && targetSong.audioUrl) {
       const candidates = targetSong.streamMirrors && targetSong.streamMirrors.length > 0 ? targetSong.streamMirrors : [targetSong.audioUrl];
       const validStream = candidates[0] || targetSong.audioUrl;
-      audioRef.current.src = validStream;
-      audioRef.current.load();
-      safePlay();
+      const currentSrc = audioRef.current.src || '';
+      const isAlreadyPlayingThis = currentSrc === validStream || currentSrc.endsWith(validStream);
+
+      if (!isAlreadyPlayingThis) {
+        // If app is currently hidden/locked and already playing audio, avoid swapping src mid-background to avoid session drop
+        if (document.visibilityState === 'hidden' && !audioRef.current.paused) {
+          // Keep current stream playing without interrupting
+        } else {
+          audioRef.current.src = validStream;
+          safePlay();
+        }
+      } else if (audioRef.current.paused && !userInitiatedPauseRef.current) {
+        safePlay();
+      }
     }
   };
 
   const playSong = (song: Song, newQueue: Song[] = [], autoExpand: boolean = false) => {
-    // 1. Prime the primary HTML5 audio element synchronously within user gesture
-    if (audioRef.current) {
-      if (song.audioUrl) {
-        audioRef.current.src = song.audioUrl;
+    applyAudioSessionPlayback();
+    ensureAudioSessionActive();
+    userInitiatedPauseRef.current = false;
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+
+    let streamUrl = song.audioUrl;
+    if (!streamUrl && song.youtubeId) {
+      streamUrl = `/api/stream/youtube/${song.youtubeId}`;
+    }
+    const songWithUrl = {
+      ...song,
+      audioUrl: streamUrl || song.audioUrl,
+      streamMirrors: streamUrl ? [streamUrl, ...(song.streamMirrors || [])] : (song.streamMirrors || [])
+    };
+
+    // Synchronously bind and start audio element within the user gesture if direct stream is available
+    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+      const currentSrc = audioRef.current.src || '';
+      if (currentSrc !== streamUrl && !currentSrc.endsWith(streamUrl)) {
+        audioRef.current.src = streamUrl;
       }
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
+        playPromiseRef.current = playPromise;
         playPromise.catch(() => {});
       }
     }
-    ensureAudioSessionActive();
+
     if (newQueue.length > 0) {
       setQueue(newQueue);
     } else if (queue.length === 0) {
-      setQueue([song]);
+      setQueue([songWithUrl]);
     }
-    startPlayback(song);
+    startPlayback(songWithUrl);
     if (autoExpand) {
       setIsExpanded(true);
     }
@@ -505,17 +507,67 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
   const shufflePlay = (songs: Song[]) => {
     if (!songs || songs.length === 0) return;
+    applyAudioSessionPlayback();
     ensureAudioSessionActive();
+    userInitiatedPauseRef.current = false;
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+
     const shuffled = [...songs].sort(() => Math.random() - 0.5);
     setIsShuffle(true);
     setQueue(shuffled);
-    startPlayback(shuffled[0]);
+
+    const first = shuffled[0];
+    let streamUrl = first.audioUrl;
+    if (!streamUrl && first.youtubeId) {
+      streamUrl = `/api/stream/youtube/${first.youtubeId}`;
+    }
+    const firstWithUrl = {
+      ...first,
+      audioUrl: streamUrl || first.audioUrl,
+      streamMirrors: streamUrl ? [streamUrl, ...(first.streamMirrors || [])] : (first.streamMirrors || [])
+    };
+
+    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+      audioRef.current.src = streamUrl;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromiseRef.current = playPromise;
+        playPromise.catch(() => {});
+      }
+    }
+
+    startPlayback(firstWithUrl);
     setIsExpanded(true);
   };
 
   const _playDirectly = (song: Song) => {
+    applyAudioSessionPlayback();
     ensureAudioSessionActive();
-    startPlayback(song);
+    userInitiatedPauseRef.current = false;
+    setIsPlaying(true);
+    isPlayingRef.current = true;
+
+    let streamUrl = song.audioUrl;
+    if (!streamUrl && song.youtubeId) {
+      streamUrl = `/api/stream/youtube/${song.youtubeId}`;
+    }
+    const songWithUrl = {
+      ...song,
+      audioUrl: streamUrl || song.audioUrl,
+      streamMirrors: streamUrl ? [streamUrl, ...(song.streamMirrors || [])] : (song.streamMirrors || [])
+    };
+
+    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+      audioRef.current.src = streamUrl;
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromiseRef.current = playPromise;
+        playPromise.catch(() => {});
+      }
+    }
+
+    startPlayback(songWithUrl);
   };
 
   const togglePlay = () => {
@@ -524,33 +576,24 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     if (isPlaying) {
       userInitiatedPauseRef.current = true;
       setIsPlaying(false);
+      isPlayingRef.current = false;
       pauseAudioSession();
-      if (activeEngine === 'youtube') {
-        if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {
-          try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
-        }
-      } else {
-        if (playPromiseRef.current !== undefined) {
-          (playPromiseRef.current as Promise<void>).then(() => {
-            audioRef.current?.pause();
-          }).catch(() => {
-            audioRef.current?.pause();
-          });
-        } else {
+      if (playPromiseRef.current !== undefined) {
+        (playPromiseRef.current as Promise<void>).then(() => {
           audioRef.current?.pause();
-        }
+        }).catch(() => {
+          audioRef.current?.pause();
+        });
+      } else {
+        audioRef.current?.pause();
       }
     } else {
       userInitiatedPauseRef.current = false;
       setIsPlaying(true);
+      isPlayingRef.current = true;
+      applyAudioSessionPlayback();
       ensureAudioSessionActive();
-      if (activeEngine === 'youtube') {
-        if (ytPlayerRef.current && ytPlayerRef.current.playVideo) {
-          try { ytPlayerRef.current.playVideo(); } catch (e) {}
-        }
-      } else {
-        safePlay();
-      }
+      safePlay();
     }
   };
 
@@ -660,11 +703,22 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         });
 
         navigator.mediaSession.setActionHandler('play', () => {
+          applyAudioSessionPlayback();
           ensureAudioSessionActive();
-          handlersRef.current.togglePlay();
+          userInitiatedPauseRef.current = false;
+          setIsPlaying(true);
+          isPlayingRef.current = true;
+          if (audioRef.current) {
+            audioRef.current.play().catch(() => {});
+          }
         });
         navigator.mediaSession.setActionHandler('pause', () => {
-          handlersRef.current.togglePlay();
+          userInitiatedPauseRef.current = true;
+          setIsPlaying(false);
+          isPlayingRef.current = false;
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
         });
         navigator.mediaSession.setActionHandler('previoustrack', () => handlersRef.current.prevSong());
         navigator.mediaSession.setActionHandler('nexttrack', () => handlersRef.current.nextSong());
@@ -787,17 +841,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           }
         }}
         onPause={() => {
-          if (activeEngine === 'audio') {
-            if (userInitiatedPauseRef.current) {
-              setIsPlaying(false);
-            } else if (isPlayingRef.current) {
-              // OS Lockscreen or background interruption: automatically maintain playback
-              setTimeout(() => {
-                if (isPlayingRef.current && audioRef.current?.paused && !userInitiatedPauseRef.current) {
-                  audioRef.current.play().catch(() => {});
-                }
-              }, 150);
-            }
+          if (userInitiatedPauseRef.current) {
+            setIsPlaying(false);
+          } else if (isPlayingRef.current) {
+            // Immediate synchronous attempt if not user initiated (e.g. system interruption / phone locked)
+            applyAudioSessionPlayback();
+            ensureAudioSessionActive();
+            try {
+              audioRef.current?.play().catch(() => {});
+            } catch (e) {}
           }
         }}
         onError={handleAudioError}
