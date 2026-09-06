@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, Heart, Shuffle, Repeat, Repeat1, ListMusic } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, Heart, Shuffle, Repeat, Repeat1, ListMusic, ChevronUp } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { isSongSaved, toggleSaveSong } from '../api';
 import { ExpandedPlayer } from './ExpandedPlayer';
@@ -56,17 +56,18 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
   if (!currentSong) return null;
 
   return (
-    <motion.div
-      initial={{ y: 50, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.3 }}
-      className="fixed bottom-[calc(3.85rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-2 right-2 md:left-0 md:right-0 h-14 md:h-24 bg-zinc-900/95 md:bg-[#181818] border border-zinc-800/80 md:border-t md:border-zinc-800 md:border-none rounded-xl md:rounded-none flex items-center justify-between px-3 md:px-4 z-[60] shadow-2xl backdrop-blur-xl select-none"
-    >
-      {/* Left: Song Info (Tap to expand full player) */}
-      <div 
-        className="flex items-center flex-1 md:flex-initial md:w-[30%] min-w-0 cursor-pointer p-1 -ml-1 rounded-lg transition-colors hover:bg-zinc-800/40"
+    <>
+      <motion.div
+        initial={{ y: 50, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.3 }}
         onClick={() => setIsExpanded(true)}
+        className="fixed bottom-[calc(3.85rem+env(safe-area-inset-bottom,0px))] md:bottom-0 left-2 right-2 md:left-0 md:right-0 h-14 md:h-24 bg-zinc-900/95 md:bg-[#181818] border border-zinc-800/80 md:border-t md:border-zinc-800 md:border-none rounded-xl md:rounded-none flex items-center justify-between px-3 md:px-4 z-[60] shadow-2xl backdrop-blur-xl select-none cursor-pointer"
       >
+        {/* Left: Song Info (Tap to expand full player) */}
+        <div 
+          className="flex items-center flex-1 md:flex-initial md:w-[30%] min-w-0 p-1 -ml-1 rounded-lg transition-colors hover:bg-zinc-800/40"
+        >
         <motion.img
           key={currentSong.id}
           initial={{ scale: 0.8, opacity: 0 }}
@@ -104,7 +105,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
 
         <motion.button
           whileTap={{ scale: 0.9 }}
-          onClick={togglePlay} 
+          onClick={(e) => { e.stopPropagation(); togglePlay(); }} 
           className="w-9 h-9 flex items-center justify-center bg-white text-black rounded-full shadow-lg transition-transform touch-manipulation flex-shrink-0"
         >
           {isPlaying ? <Pause size={18} className="fill-current" /> : <Play size={18} className="fill-current ml-0.5" />}
@@ -112,11 +113,20 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
 
         <motion.button
           whileTap={{ scale: 0.85 }}
-          onClick={nextSong}
+          onClick={(e) => { e.stopPropagation(); nextSong(); }}
           className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:text-white transition-colors touch-manipulation"
           title="Next Track"
         >
           <SkipForward size={20} className="fill-current" />
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.85 }}
+          onClick={(e) => { e.stopPropagation(); setIsExpanded(true); }}
+          className="p-1 text-zinc-400 hover:text-white transition-colors touch-manipulation"
+          title="Open Player"
+        >
+          <ChevronUp size={20} />
         </motion.button>
       </div>
 
@@ -226,6 +236,7 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
            style={{ width: `${(progress / (duration || 1)) * 100}%` }}
          />
       </div>
+      </motion.div>
 
       <AnimatePresence>
         {isExpanded && (
@@ -239,6 +250,6 @@ export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange 
       {showPlaylistModal && currentSong && (
         <PlaylistModal song={currentSong} onClose={() => setShowPlaylistModal(false)} />
       )}
-    </motion.div>
+    </>
   );
 };

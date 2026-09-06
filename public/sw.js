@@ -12,8 +12,17 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Bypass Service Worker entirely for audio previews to fix Safari/Chrome Range request issues
-  if (event.request.headers.get('range') || url.hostname.includes('apple.com')) {
+  // Bypass Service Worker entirely for all audio streams and range requests
+  // This allows native WebKit / Android OS background audio streaming without Service Worker lifecycle interruptions
+  if (
+    event.request.destination === 'audio' ||
+    event.request.headers.get('range') ||
+    url.pathname.startsWith('/api/stream') ||
+    url.pathname.includes('/stream/') ||
+    url.hostname.includes('apple.com') ||
+    url.hostname.includes('googlevideo.com') ||
+    url.hostname.includes('audius')
+  ) {
     return;
   }
 

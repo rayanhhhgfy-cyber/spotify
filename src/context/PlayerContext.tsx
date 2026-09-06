@@ -42,7 +42,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [activeEngine, setActiveEngine] = useState<'youtube' | 'audio'>('audio');
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const silentAudioRef = useRef<HTMLAudioElement>(null);
   const ytPlayerRef = useRef<any>(null);
   const ytReadyRef = useRef<boolean>(false);
   const playPromiseRef = useRef<Promise<void> | void>();
@@ -75,16 +74,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     } catch (e) {}
-
-    if (silentAudioRef.current && silentAudioRef.current.paused) {
-      silentAudioRef.current.play().catch(() => {});
-    }
   };
 
   const pauseAudioSession = () => {
-    if (silentAudioRef.current && !silentAudioRef.current.paused) {
-      silentAudioRef.current.pause();
-    }
+    // Audio element pause is handled directly
   };
 
   // Sync isPlaying state to ref and media session
@@ -488,6 +481,16 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const playSong = (song: Song, newQueue: Song[] = [], autoExpand: boolean = false) => {
+    // 1. Prime the primary HTML5 audio element synchronously within user gesture
+    if (audioRef.current) {
+      if (song.audioUrl) {
+        audioRef.current.src = song.audioUrl;
+      }
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {});
+      }
+    }
     ensureAudioSessionActive();
     if (newQueue.length > 0) {
       setQueue(newQueue);
@@ -728,15 +731,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }}
     >
       {children}
-      {/* Background Audio Session Keeper for iOS lockscreen / closed phone playback */}
-      <audio
-        ref={silentAudioRef}
-        playsInline
-        loop
-        preload="auto"
-        src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
-        style={{ display: 'none' }}
-      />
 
       {/* YouTube IFrame Player Container for full track audio playback */}
       <div

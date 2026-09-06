@@ -163,7 +163,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ onViewChange }) => {
   };
 
   return (
-    <div className="px-3.5 sm:px-6 py-4 sm:py-6 pb-8 animate-in fade-in">
+    <div className="px-3.5 sm:px-6 py-4 sm:py-6 pb-[calc(11.5rem+env(safe-area-inset-bottom,0px))] md:pb-28 animate-in fade-in">
       <div className="flex gap-2 sm:gap-3 border-b border-zinc-800/80 mb-6 pb-2 overflow-x-auto no-scrollbar select-none -mx-3.5 sm:mx-0 px-3.5 sm:px-0">
         {[
           { id: 'playlists', label: 'Playlists', icon: ListMusic },

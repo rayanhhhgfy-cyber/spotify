@@ -136,7 +136,7 @@ export const PlaylistView: React.FC<PlaylistViewProps> = ({ playlistId, onViewCh
   };
 
   return (
-    <div className="px-3.5 sm:px-6 py-4 sm:py-6 animate-in fade-in duration-300">
+    <div className="px-3.5 sm:px-6 py-4 sm:py-6 animate-in fade-in duration-300 pb-[calc(11.5rem+env(safe-area-inset-bottom,0px))] md:pb-28">
       <div className="flex flex-col md:flex-row items-center md:items-end space-y-4 md:space-y-0 md:space-x-6 mb-6 sm:mb-8 text-center md:text-left">
         <div className="w-36 h-36 sm:w-48 sm:h-48 rounded-2xl bg-zinc-800 flex items-center justify-center shadow-xl overflow-hidden group flex-shrink-0">
           {playlist.songs.length > 0 ? (

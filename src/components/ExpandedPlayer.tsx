@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, Play, Pause, SkipBack, SkipForward, Shuffle, Repeat, Repeat1, Heart, ListPlus, Clock, SlidersHorizontal, RotateCcw, Plus, Minus } from 'lucide-react';
 import { usePlayer } from '../context/PlayerContext';
 import { isSongSaved, toggleSaveSong } from '../api';
@@ -174,13 +175,13 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
 
   if (!currentSong) return null;
 
-  return (
+  return createPortal(
     <motion.div
       initial={{ y: "100%" }}
       animate={{ y: 0 }}
       exit={{ y: "100%" }}
       transition={{ type: "spring", damping: 28, stiffness: 220 }}
-      className="fixed inset-0 z-[100] bg-gradient-to-b from-zinc-800 via-zinc-900 to-black overflow-y-auto pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-[max(2rem,env(safe-area-inset-bottom,0px))] flex flex-col select-none touch-manipulation overscroll-none"
+      className="fixed inset-0 z-[9999] bg-gradient-to-b from-zinc-900 via-zinc-950 to-black overflow-y-auto pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-[max(2.5rem,env(safe-area-inset-bottom,0px))] flex flex-col select-none touch-manipulation overscroll-none"
     >
       {/* Visual Swipe-down indicator pill */}
       <div 
@@ -454,7 +455,14 @@ export const ExpandedPlayer: React.FC<ExpandedPlayerProps> = ({ onClose, onOpenP
             </div>
           )}
         </div>
+
+        {/* Bottom Version Indicator v2.4 */}
+        <div className="flex items-center justify-center gap-2 pt-6 pb-2 text-[11px] text-zinc-500 font-medium">
+          <span>Spotify Web Player</span>
+          <span className="font-mono text-zinc-300 font-bold bg-zinc-900 border border-zinc-800 px-2 py-0.5 rounded-full">v2.4</span>
+        </div>
       </div>
-    </motion.div>
+    </motion.div>,
+    document.body
   );
 };

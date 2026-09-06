@@ -337,11 +337,12 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       requestHeaders['Range'] = rangeHeader;
     }
 
+    const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
     const proxyReq = https.request(
       {
         hostname: targetUrl.hostname,
         path: targetUrl.pathname + targetUrl.search,
-        method: 'GET',
+        method: method,
         headers: requestHeaders
       },
       proxyRes => {
@@ -356,6 +357,12 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
         if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
         res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'public, max-age=14400');
+
+        if (req.method === 'HEAD') {
+          res.end();
+          proxyRes.destroy();
+          return;
+        }
 
         proxyRes.pipe(res);
       }
