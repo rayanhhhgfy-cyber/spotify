@@ -16,6 +16,15 @@ const ytdlpPath = fs.existsSync(path.join(process.cwd(), 'yt-dlp'))
   : fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp'))
   ? path.join(process.cwd(), 'bin', 'yt-dlp')
   : '/usr/local/bin/yt-dlp';
+
+try {
+  if (fs.existsSync(ytdlpPath)) {
+    fs.chmodSync(ytdlpPath, '755');
+  }
+} catch (e) {
+  console.warn('Failed to chmod yt-dlp:', e);
+}
+
 const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 app.use(express.json({ limit: '10mb' }));
@@ -287,7 +296,8 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
           streamUrlCache.set(id, { url: extractedUrl, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
         }
       } catch (e: any) {
-        console.warn(`yt-dlp extraction failed for ${id}:`, e.message);
+        // Silently catch yt-dlp failures as YouTube blocks datacenter IPs
+        // The frontend will automatically fall back to iTunes/Audius if this endpoint returns 404
       }
     }
 
@@ -375,7 +385,7 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
     );
 
     proxyReq.on('error', (err) => {
-      console.warn('Proxy stream error:', err.message);
+      // Log proxy disconnects quietly (happens frequently during track scrubbing)
       if (!res.headersSent) res.status(502).send('Upstream stream error');
     });
 
@@ -385,7 +395,6 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       proxyReq.destroy();
     });
   } catch (error: any) {
-    console.error('Stream handler error:', error);
     if (!res.headersSent) {
       res.status(500).send('Streaming failed');
     }

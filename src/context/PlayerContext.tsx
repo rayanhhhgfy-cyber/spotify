@@ -340,9 +340,25 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
-    // If current stream failed and was empty or youtube stream proxy, attempt dynamic direct resolution via Audius/iTunes
+    // If backend streaming fails but we have a youtubeId, fallback directly to the official YouTube iFrame
+    if (song.youtubeId) {
+      setActiveEngine('youtube');
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.loadVideoById(song.youtubeId);
+          ytPlayerRef.current.playVideo();
+          setIsPlaying(true);
+          isPlayingRef.current = true;
+          return;
+        } catch (e) {
+          console.warn('YouTube fallback failed', e);
+        }
+      }
+    }
+
+    // Only fallback to Audius/iTunes if it's NOT a YouTube-based song (e.g. from local search)
     if (!song.audioUrl || song.audioUrl.startsWith('/api/stream/youtube')) {
-      resolveFullLengthStream(song.title, song.artist).then(resolved => {
+      resolveFullLengthStream(song.title, song.artist, true).then(resolved => {
         if (resolved && resolved.audioUrl && audioRef.current && currentSongRef.current?.id === song.id) {
           song.audioUrl = resolved.audioUrl;
           song.streamMirrors = resolved.mirrors && resolved.mirrors.length > 0 ? resolved.mirrors : [resolved.audioUrl];
@@ -400,7 +416,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     let targetSong = { ...song };
 
-    // Resolve direct stream if missing or if pointing to local /api/stream/youtube which may require resolution
+    // If we have a youtubeId, we use the YouTube Engine directly. Skip resolution.
+    if (targetSong.youtubeId) {
+      setActiveEngine('youtube');
+      userInitiatedPauseRef.current = false;
+      setIsPlaying(true);
+      isPlayingRef.current = true;
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+      return; // Skip audio URL resolution
+    }
+
     const needsResolution = !targetSong.audioUrl || targetSong.audioUrl.startsWith('/api/stream/youtube') || targetSong.duration <= 30000;
 
     if (needsResolution) {
@@ -411,6 +438,21 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         if (resolved.youtubeId) {
           targetSong.youtubeId = resolved.youtubeId;
           targetSong.backupYoutubeIds = resolved.backupYoutubeIds || [];
+          
+          // Switch to youtube engine if resolution returned a youtube ID
+          setCurrentSong(targetSong);
+          currentSongRef.current = targetSong;
+          setActiveEngine('youtube');
+          if (ytPlayerRef.current) {
+            try {
+              ytPlayerRef.current.loadVideoById(resolved.youtubeId);
+              ytPlayerRef.current.playVideo();
+            } catch(e) {}
+          }
+          if (audioRef.current && !audioRef.current.paused) {
+            audioRef.current.pause();
+          }
+          return;
         }
         if (resolved.duration) {
           targetSong.duration = resolved.duration;
@@ -420,20 +462,6 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         setCurrentSong(targetSong);
         currentSongRef.current = targetSong;
       }
-    }
-
-    if (targetSong.youtubeId && !targetSong.audioUrl) {
-      targetSong.audioUrl = `/api/stream/youtube/${targetSong.youtubeId}`;
-    }
-
-    if (targetSong.youtubeId) {
-      const streamEndpoint = `/api/stream/youtube/${targetSong.youtubeId}`;
-      if (!targetSong.audioUrl) {
-        targetSong.audioUrl = streamEndpoint;
-      }
-      const existingMirrors = targetSong.streamMirrors || [];
-      const backupMirrors = (targetSong.backupYoutubeIds || []).map(bId => `/api/stream/youtube/${bId}`);
-      targetSong.streamMirrors = Array.from(new Set([targetSong.audioUrl, ...existingMirrors, streamEndpoint, ...backupMirrors]));
     }
 
     setActiveEngine('audio');
@@ -481,8 +509,21 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       streamMirrors: streamUrl ? [streamUrl, ...(song.streamMirrors || [])] : (song.streamMirrors || [])
     };
 
-    // Synchronously bind and start audio element within the user gesture if direct stream is available
-    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+    // Synchronously bind and start player within the user gesture
+    if (songWithUrl.youtubeId) {
+      setActiveEngine('youtube');
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.loadVideoById(songWithUrl.youtubeId);
+          ytPlayerRef.current.playVideo();
+        } catch(e) {}
+      }
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    } else if (audioRef.current && streamUrl) {
+      setActiveEngine('audio');
+      if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       const currentSrc = audioRef.current.src || '';
       if (currentSrc !== streamUrl && !currentSrc.endsWith(streamUrl)) {
         audioRef.current.src = streamUrl;
@@ -528,7 +569,20 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       streamMirrors: streamUrl ? [streamUrl, ...(first.streamMirrors || [])] : (first.streamMirrors || [])
     };
 
-    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+    if (firstWithUrl.youtubeId) {
+      setActiveEngine('youtube');
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.loadVideoById(firstWithUrl.youtubeId);
+          ytPlayerRef.current.playVideo();
+        } catch(e) {}
+      }
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    } else if (audioRef.current && streamUrl) {
+      setActiveEngine('audio');
+      if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       audioRef.current.src = streamUrl;
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
@@ -558,7 +612,20 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       streamMirrors: streamUrl ? [streamUrl, ...(song.streamMirrors || [])] : (song.streamMirrors || [])
     };
 
-    if (audioRef.current && streamUrl && !streamUrl.startsWith('/api/stream/youtube')) {
+    if (songWithUrl.youtubeId) {
+      setActiveEngine('youtube');
+      if (ytPlayerRef.current) {
+        try {
+          ytPlayerRef.current.loadVideoById(songWithUrl.youtubeId);
+          ytPlayerRef.current.playVideo();
+        } catch(e) {}
+      }
+      if (audioRef.current && !audioRef.current.paused) {
+        audioRef.current.pause();
+      }
+    } else if (audioRef.current && streamUrl) {
+      setActiveEngine('audio');
+      if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       audioRef.current.src = streamUrl;
       const playPromise = audioRef.current.play();
       if (playPromise !== undefined) {
@@ -578,14 +645,19 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       setIsPlaying(false);
       isPlayingRef.current = false;
       pauseAudioSession();
-      if (playPromiseRef.current !== undefined) {
-        (playPromiseRef.current as Promise<void>).then(() => {
-          audioRef.current?.pause();
-        }).catch(() => {
-          audioRef.current?.pause();
-        });
+
+      if (activeEngine === 'youtube' && ytPlayerRef.current) {
+        try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
       } else {
-        audioRef.current?.pause();
+        if (playPromiseRef.current !== undefined) {
+          (playPromiseRef.current as Promise<void>).then(() => {
+            audioRef.current?.pause();
+          }).catch(() => {
+            audioRef.current?.pause();
+          });
+        } else {
+          audioRef.current?.pause();
+        }
       }
     } else {
       userInitiatedPauseRef.current = false;
@@ -593,7 +665,12 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       isPlayingRef.current = true;
       applyAudioSessionPlayback();
       ensureAudioSessionActive();
-      safePlay();
+
+      if (activeEngine === 'youtube' && ytPlayerRef.current) {
+        try { ytPlayerRef.current.playVideo(); } catch (e) {}
+      } else {
+        safePlay();
+      }
     }
   };
 
@@ -636,15 +713,33 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (isShuffle) {
       const nextIdx = Math.floor(Math.random() * queue.length);
-      _playDirectly(queue[nextIdx]);
+      const nextS = queue[nextIdx];
+      if (nextS && nextS.youtubeId) {
+          setActiveEngine('youtube');
+          if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
+          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+      }
+      _playDirectly(nextS);
       return;
     }
 
     if (idx !== -1 && idx < queue.length - 1) {
-      _playDirectly(queue[idx + 1]);
+      const nextS = queue[idx + 1];
+      if (nextS && nextS.youtubeId) {
+          setActiveEngine('youtube');
+          if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
+          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+      }
+      _playDirectly(nextS);
     } else {
       // 24/7 continuous uninterrupted queue loop
-      _playDirectly(queue[0]);
+      const nextS = queue[0];
+      if (nextS && nextS.youtubeId) {
+          setActiveEngine('youtube');
+          if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
+          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+      }
+      _playDirectly(nextS);
     }
   };
 
@@ -654,7 +749,13 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     if (progress > 3) {
       seek(0);
     } else if (idx > 0) {
-      _playDirectly(queue[idx - 1]);
+      const prevS = queue[idx - 1];
+      if (prevS && prevS.youtubeId) {
+          setActiveEngine('youtube');
+          if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(prevS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
+          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+      }
+      _playDirectly(prevS);
     }
   };
 

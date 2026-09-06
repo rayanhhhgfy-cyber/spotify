@@ -57,7 +57,28 @@ export const formatAudiusSong = (r: any): Song => {
 };
 
 export const resolveFullLengthStream = async (title: string, artist: string, forceAudius = false): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string; backupYoutubeIds?: string[] } | null> => {
-  // 1. Query Audius decentralized catalog first for direct full-length MP3 stream
+  // 1. First priority: Server-side YouTube & full song resolver
+  if (!forceAudius) {
+    try {
+      const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.youtubeId) {
+          return {
+            audioUrl: `/api/stream/youtube/${data.youtubeId}`,
+            mirrors: [`/api/stream/youtube/${data.youtubeId}`],
+            duration: data.duration || 240000,
+            youtubeId: data.youtubeId,
+            backupYoutubeIds: data.backupYoutubeIds || []
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Backend resolve error:', e);
+    }
+  }
+
+  // 2. Query Audius decentralized catalog for direct full-length MP3 stream
   const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
   const queries: string[] = [
     `${title} ${artist}`.trim(),
@@ -76,6 +97,7 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
             if (!r.title) return false;
             const rTitle = r.title.toLowerCase().replace(/[^a-z0-9]/g, '');
             const hasStream = r.stream?.url || r.stream_url || r.is_streamable || r.id;
+            // Strictly verify that track title contains the core song title
             return hasStream && (rTitle.includes(cleanTitle) || cleanTitle.includes(rTitle));
           });
 
@@ -96,7 +118,7 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
     }
   }
 
-  // 2. Query iTunes for direct streaming audio
+  // 3. Query iTunes for direct streaming audio preview
   try {
     const itunesRes = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(`${title} ${artist}`)}&entity=song&limit=1`);
     if (itunesRes.ok) {
@@ -112,27 +134,6 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
     }
   } catch (e) {
     console.warn('iTunes resolution fallback error:', e);
-  }
-
-  // 3. Fallback to server-side resolve
-  if (!forceAudius) {
-    try {
-      const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.youtubeId) {
-          return {
-            audioUrl: `/api/stream/youtube/${data.youtubeId}`,
-            mirrors: [`/api/stream/youtube/${data.youtubeId}`],
-            duration: data.duration || 240000,
-            youtubeId: data.youtubeId,
-            backupYoutubeIds: data.backupYoutubeIds || []
-          };
-        }
-      }
-    } catch (e) {
-      console.warn('Backend resolve error:', e);
-    }
   }
 
   return null;
