@@ -346,10 +346,10 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       proxyRes => {
         const status = proxyRes.statusCode || 200;
         res.status(status);
-        if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
+        res.setHeader('Accept-Ranges', 'bytes');
+        res.setHeader('Content-Type', proxyRes.headers['content-type'] || 'audio/mp4');
         if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
         if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
-        if (proxyRes.headers['accept-ranges']) res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
         res.setHeader('Cache-Control', 'public, max-age=14400');
 
         proxyRes.pipe(res);

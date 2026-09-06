@@ -115,7 +115,10 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 's
                     <Download size={20} />
                   </div>
                   <div>
-                    <h3 className="text-base font-bold text-white">Install Spotify Clone (PWA)</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white">Install Spotify Clone (PWA)</h3>
+                      <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">v2.4</span>
+                    </div>
                     <p className="text-xs text-zinc-400">Install as a standalone native-like app</p>
                   </div>
                 </div>

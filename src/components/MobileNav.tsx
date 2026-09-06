@@ -51,6 +51,11 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
         );
       })}
 
+      <div className="flex flex-col items-center justify-center space-y-1 w-full h-full min-h-[44px]">
+        <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">v2.4</span>
+        <span className="text-[9px] text-zinc-500 font-medium">Version</span>
+      </div>
+
       {!isInstalled && (
         <button
           onClick={handleInstallPWA}
@@ -73,7 +78,10 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
                   <Download size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Install Spotify Clone</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold">Install Spotify Clone</h3>
+                    <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">v2.4</span>
+                  </div>
                   <p className="text-xs text-zinc-400">Full Progressive Web App</p>
                 </div>
               </div>
