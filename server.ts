@@ -11,7 +11,11 @@ const app = express();
 const PORT = 3000;
 
 // yt-dlp binary path and stream cache
-const ytdlpPath = path.join(process.cwd(), 'yt-dlp');
+const ytdlpPath = fs.existsSync(path.join(process.cwd(), 'yt-dlp'))
+  ? path.join(process.cwd(), 'yt-dlp')
+  : fs.existsSync(path.join(process.cwd(), 'bin', 'yt-dlp'))
+  ? path.join(process.cwd(), 'bin', 'yt-dlp')
+  : '/usr/local/bin/yt-dlp';
 const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
 
 app.use(express.json({ limit: '10mb' }));
@@ -258,14 +262,15 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
           execFile(
             ytdlpPath,
             ['-g', '-f', '140/ba[ext=m4a]/ba/b', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
-            { timeout: 10000 },
+            { timeout: 12000 },
             (err, stdout) => {
               if (err) return reject(err);
-              const url = stdout.trim().split('\n')[0];
+              const lines = stdout.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+              const url = lines[0];
               if (url && url.startsWith('http')) {
                 resolve(url);
               } else {
-                reject(new Error('No stream URL output'));
+                reject(new Error('No stream URL in output'));
               }
             }
           );
@@ -280,7 +285,31 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       }
     }
 
-    // 3. Fallback to ytdl if yt-dlp did not produce URL
+    // 3. Fallback to Piped API stream if yt-dlp did not produce URL
+    if (!streamUrl) {
+      const pipedInstances = [
+        'https://pipedapi.kavin.rocks',
+        'https://api.piped.privacydev.net',
+        'https://pipedapi.adminforge.de'
+      ];
+      for (const instance of pipedInstances) {
+        try {
+          const resp = await fetch(`${instance}/streams/${id}`, { signal: AbortSignal.timeout(3500) });
+          if (resp.ok) {
+            const data: any = await resp.json();
+            const audioStreams = data.audioStreams || [];
+            const best = audioStreams.find((s: any) => s.mimeType?.includes('mp4') || s.mimeType?.includes('audio')) || audioStreams[0];
+            if (best?.url) {
+              streamUrl = best.url;
+              streamUrlCache.set(id, { url: best.url, expiresAt: Date.now() + 3 * 60 * 60 * 1000 });
+              break;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 4. Fallback to ytdl if still no stream
     if (!streamUrl) {
       try {
         const info = await ytdl.getInfo(id);
