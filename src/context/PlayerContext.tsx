@@ -11,7 +11,9 @@ interface PlayerContextType {
   volume: number;
   isShuffle: boolean;
   repeatMode: 'off' | 'all' | 'one';
-  playSong: (song: Song, newQueue?: Song[]) => void;
+  isExpanded: boolean;
+  setIsExpanded: (expanded: boolean) => void;
+  playSong: (song: Song, newQueue?: Song[], autoExpand?: boolean) => void;
   shufflePlay: (songs: Song[]) => void;
   togglePlay: () => void;
   nextSong: () => void;
@@ -21,6 +23,8 @@ interface PlayerContextType {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
   reorderQueue: (startIndex: number, endIndex: number) => void;
+  removeFromQueue: (songId: string) => void;
+  clearQueue: () => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -34,6 +38,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const [volume, setVolumeState] = useState(1);
   const [isShuffle, setIsShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'off' | 'all' | 'one'>('all');
+  const [isExpanded, setIsExpanded] = useState(false);
   const [activeEngine, setActiveEngine] = useState<'youtube' | 'audio'>('audio');
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -297,6 +302,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     });
   };
 
+  const removeFromQueue = (songId: string) => {
+    setQueue(prev => prev.filter(s => s.id !== songId));
+  };
+
+  const clearQueue = () => {
+    if (currentSongRef.current) {
+      setQueue([currentSongRef.current]);
+    } else {
+      setQueue([]);
+    }
+  };
+
   const handleAudioError = () => {
     if (!currentSongRef.current) return;
     const song = currentSongRef.current;
@@ -470,7 +487,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
-  const playSong = (song: Song, newQueue: Song[] = []) => {
+  const playSong = (song: Song, newQueue: Song[] = [], autoExpand: boolean = false) => {
     ensureAudioSessionActive();
     if (newQueue.length > 0) {
       setQueue(newQueue);
@@ -478,6 +495,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       setQueue([song]);
     }
     startPlayback(song);
+    if (autoExpand) {
+      setIsExpanded(true);
+    }
   };
 
   const shufflePlay = (songs: Song[]) => {
@@ -487,6 +507,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     setIsShuffle(true);
     setQueue(shuffled);
     startPlayback(shuffled[0]);
+    setIsExpanded(true);
   };
 
   const _playDirectly = (song: Song) => {
@@ -699,7 +720,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         setVolume,
         toggleShuffle,
         toggleRepeat,
-        reorderQueue
+        reorderQueue,
+        removeFromQueue,
+        clearQueue,
+        isExpanded,
+        setIsExpanded
       }}
     >
       {children}
@@ -718,17 +743,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         id="yt-audio-player-container"
         style={{
           position: 'fixed',
-          bottom: 0,
-          left: 0,
-          width: 4,
-          height: 4,
-          opacity: 0.05,
-          zIndex: 1,
+          top: -9999,
+          left: -9999,
+          width: 1,
+          height: 1,
+          opacity: 0,
+          zIndex: -1,
           pointerEvents: 'none',
           overflow: 'hidden'
         }}
       >
-        <div id="yt-audio-player" style={{ width: 4, height: 4 }}></div>
+        <div id="yt-audio-player" style={{ width: 1, height: 1 }}></div>
       </div>
 
       {/* HTML5 Audio Element for native background 24/7 audio playback */}

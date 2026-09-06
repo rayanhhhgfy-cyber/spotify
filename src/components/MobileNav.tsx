@@ -64,6 +64,13 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
         </button>
       )}
 
+      {/* v2.4 Version Badge in Bottom Navigation */}
+      <div className="flex flex-col items-center justify-center px-1.5 flex-shrink-0" title="Spotify Clone v2.4">
+        <span className="text-[9px] font-mono font-bold text-zinc-400 bg-zinc-850 bg-zinc-800/80 border border-zinc-700/60 px-1.5 py-0.5 rounded-full shadow-inner">
+          v2.4
+        </span>
+      </div>
+
       {showInstallModal && (
         <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 text-left" onClick={() => setShowInstallModal(false)}>
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl text-white space-y-4" onClick={e => e.stopPropagation()}>
@@ -73,7 +80,10 @@ export const MobileNav: React.FC<MobileNavProps> = ({ currentView, onViewChange 
                   <Download size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">Install Spotify Clone</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-base font-bold">Install Spotify Clone</h3>
+                    <span className="text-[10px] font-mono font-bold bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded-full">v2.4</span>
+                  </div>
                   <p className="text-xs text-zinc-400">Full Progressive Web App</p>
                 </div>
               </div>

@@ -316,7 +316,8 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
         const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
         const format = ytdl.chooseFormat(audioFormats, { quality: 'highestaudio' });
         if (format) {
-          res.setHeader('Content-Type', 'audio/mpeg');
+          res.setHeader('Content-Type', 'audio/mp4');
+          res.setHeader('Accept-Ranges', 'bytes');
           res.setHeader('Cache-Control', 'public, max-age=86400');
           return ytdl(id, { format }).pipe(res);
         }
@@ -346,10 +347,14 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       proxyRes => {
         const status = proxyRes.statusCode || 200;
         res.status(status);
-        if (proxyRes.headers['content-type']) res.setHeader('Content-Type', proxyRes.headers['content-type']);
+        const upstreamContentType = proxyRes.headers['content-type'];
+        const contentType = upstreamContentType && !upstreamContentType.includes('text') && !upstreamContentType.includes('html')
+          ? (upstreamContentType.includes('mp4') || upstreamContentType.includes('m4a') ? 'audio/mp4' : upstreamContentType)
+          : 'audio/mp4';
+        res.setHeader('Content-Type', contentType);
         if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
         if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
-        if (proxyRes.headers['accept-ranges']) res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges']);
+        res.setHeader('Accept-Ranges', 'bytes');
         res.setHeader('Cache-Control', 'public, max-age=14400');
 
         proxyRes.pipe(res);

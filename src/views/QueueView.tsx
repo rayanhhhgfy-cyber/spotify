@@ -41,7 +41,7 @@ export const QueueView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 md:p-8 max-w-5xl mx-auto pb-32 animate-in fade-in">
+    <div className="p-6 md:p-8 max-w-5xl mx-auto pb-[calc(11.5rem+env(safe-area-inset-bottom,0px))] md:pb-28 animate-in fade-in">
       <h2 className="text-2xl font-bold mb-6 text-white">Queue</h2>
       
       <div className="mb-8">

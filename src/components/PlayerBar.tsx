@@ -12,10 +12,25 @@ interface PlayerBarProps {
 }
 
 export const PlayerBar: React.FC<PlayerBarProps> = ({ currentView, onViewChange }) => {
-  const { currentSong, isPlaying, progress, duration, volume, isShuffle, repeatMode, togglePlay, nextSong, prevSong, seek, setVolume, toggleShuffle, toggleRepeat } = usePlayer();
+  const {
+    currentSong,
+    isPlaying,
+    progress,
+    duration,
+    volume,
+    isShuffle,
+    repeatMode,
+    togglePlay,
+    nextSong,
+    prevSong,
+    seek,
+    setVolume,
+    toggleShuffle,
+    toggleRepeat,
+    isExpanded,
+    setIsExpanded
+  } = usePlayer();
   const [isSaved, setIsSaved] = useState(false);
-
-  const [isExpanded, setIsExpanded] = useState(false);
   const [showPlaylistModal, setShowPlaylistModal] = useState(false);
 
   useEffect(() => {

@@ -41,11 +41,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
 
   return (
     <div className="hidden md:flex flex-col w-64 bg-black h-full p-6 space-y-6">
-      <div className="flex items-center space-x-2 text-white font-bold text-2xl tracking-tight cursor-pointer" onClick={() => onViewChange('home')}>
-        <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
-           <div className="w-4 h-4 rounded-full border-2 border-black" />
+      <div className="flex items-center justify-between text-white font-bold text-2xl tracking-tight cursor-pointer" onClick={() => onViewChange('home')}>
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center">
+             <div className="w-4 h-4 rounded-full border-2 border-black" />
+          </div>
+          <span>Spotify Clone</span>
         </div>
-        <span>Spotify Clone</span>
+        <span className="text-[10px] font-mono font-bold bg-zinc-800 text-zinc-300 border border-zinc-700/60 px-2 py-0.5 rounded-full shadow-sm">
+          v2.4
+        </span>
       </div>
       
       <nav className="space-y-4">
@@ -115,8 +120,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onViewChange }) =
       </div>
 
       {/* PWA Download / Install App Button at the Bottom */}
-      <div className="pt-3 border-t border-zinc-800">
+      <div className="pt-3 border-t border-zinc-800 space-y-2">
         <PWAInstallButton variant="sidebar" />
+        <div className="flex items-center justify-between px-1 text-[11px] text-zinc-500 font-medium">
+          <span>Spotify Web Player</span>
+          <span className="font-mono text-zinc-400 font-semibold bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded">v2.4</span>
+        </div>
       </div>
     </div>
   );

@@ -105,7 +105,7 @@ export default function App() {
 
         <Sidebar currentView={currentView} onViewChange={setCurrentView} />
         
-        <main className="flex-1 overflow-y-auto bg-zinc-900 bg-gradient-to-b from-zinc-800 to-black relative overscroll-y-contain pt-[env(safe-area-inset-top,0px)] pb-[calc(7.5rem+env(safe-area-inset-bottom,0px))] md:pb-24">
+        <main className="flex-1 overflow-y-auto bg-zinc-900 bg-gradient-to-b from-zinc-800 to-black relative overscroll-y-contain pt-[env(safe-area-inset-top,0px)] pb-[calc(11.5rem+env(safe-area-inset-bottom,0px))] md:pb-28">
           <AnimatePresence mode="wait">
             <motion.div
               key={currentView}
