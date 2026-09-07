@@ -707,6 +707,62 @@ app.get('/api/shared/:id', (req, res) => {
   return res.json({ success: true, shareId: id, playlist });
 });
 
+app.get('/api/stream/soundcloud', async (req, res) => {
+  try {
+    const songUrl = (req.query.url as string || '').trim();
+    const q = (req.query.q as string || '').trim();
+
+    if (!songUrl && !q) {
+      return res.status(400).send('Missing url or q parameter');
+    }
+
+    const scScraper = await import('soundcloud-scraper');
+    const client = new scScraper.Client();
+
+    let targetUrl = songUrl;
+
+    if (!targetUrl && q) {
+      const searchResults = await client.search(q, 'track');
+      if (searchResults && searchResults.length > 0) {
+        targetUrl = searchResults[0].url;
+      }
+    }
+
+    if (!targetUrl) {
+      return res.status(404).send('Track not found on SoundCloud');
+    }
+
+    const songInfo = await client.getSongInfo(targetUrl);
+    if (!songInfo) {
+      return res.status(404).send('Song info unavailable');
+    }
+
+    const stream = await songInfo.downloadProgressive();
+    if (!stream) {
+      return res.status(404).send('Progressive stream unavailable');
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (req.method === 'HEAD') {
+      return res.end();
+    }
+
+    stream.pipe(res);
+
+    req.on('close', () => {
+      if (stream.destroy) stream.destroy();
+    });
+  } catch (e: any) {
+    console.error('SoundCloud streaming proxy error:', e);
+    if (!res.headersSent) {
+      res.status(500).send('SoundCloud stream failed');
+    }
+  }
+});
+
 app.get('/api/resolve/soundcloud', async (req, res) => {
   try {
     const q = (req.query.q as string || '').trim();
@@ -714,60 +770,53 @@ app.get('/api/resolve/soundcloud', async (req, res) => {
     const artistQuery = (req.query.artist as string || '').trim().toLowerCase();
     if (!q && !titleQuery) return res.status(400).json({ error: 'Missing query' });
     
-    const scdlModule = await import('soundcloud-downloader');
-    const scdl = (scdlModule.default as any).default || scdlModule.default || scdlModule;
     const searchQuery = q || `${titleQuery} ${artistQuery}`.trim();
-    const search: any = await scdl.search({ query: searchQuery, resourceType: 'tracks', limit: 10 });
-    if (!search || !search.collection || !Array.isArray(search.collection) || search.collection.length === 0) {
+    const scScraper = await import('soundcloud-scraper');
+    const client = new scScraper.Client();
+
+    const searchResults = await client.search(searchQuery, 'track');
+    if (!searchResults || searchResults.length === 0) {
       return res.status(404).json({ error: 'Not found' });
     }
-    
+
     const cleanTitle = titleQuery.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
 
-    const scoredTracks = search.collection.map((track: any) => {
+    const scoredTracks = searchResults.map((track: any) => {
       let score = 0;
-      const trackTitle = (track.title || '').toLowerCase();
-      const uName = (track.user?.username || '').toLowerCase();
-      const uHandle = (track.user?.permalink || '').toLowerCase();
+      const trackName = (track.name || track.title || '').toLowerCase();
+      const artistName = (track.artist || track.author?.name || '').toLowerCase();
 
-      if (cleanTitle && trackTitle.includes(cleanTitle)) score += 50;
-      if (artistQuery && (trackTitle.includes(artistQuery) || uName.includes(artistQuery) || uHandle.includes(artistQuery))) score += 40;
+      if (cleanTitle && trackName.includes(cleanTitle)) score += 50;
+      if (artistQuery && (trackName.includes(artistQuery) || artistName.includes(artistQuery))) score += 40;
 
       const badWords = ['remix', 'remake', 'cover', 'live', 'sped up', 'slowed', '8d', '10 hours', 'karaoke', 'instrumental', 'bass boosted'];
       for (const bw of badWords) {
-        if (!searchQuery.toLowerCase().includes(bw) && trackTitle.includes(bw)) {
+        if (!searchQuery.toLowerCase().includes(bw) && trackName.includes(bw)) {
           score -= 30;
         }
       }
-
-      const durMs = track.duration || 0;
-      if (durMs >= 90000 && durMs <= 450000) score += 20;
 
       return { track, score };
     });
 
     scoredTracks.sort((a: any, b: any) => b.score - a.score);
-    const bestMatch = scoredTracks[0]?.track || search.collection[0];
+    const bestMatch = scoredTracks[0]?.track || searchResults[0];
 
-    const info: any = await scdl.getInfo(bestMatch.permalink_url);
-    const trans = info.media?.transcodings?.find((t: any) => t.format?.protocol === 'progressive') || info.media?.transcodings?.[0];
-    if (!trans) {
-      return res.status(404).json({ error: 'No stream available' });
-    }
+    const streamUrl = `/api/stream/soundcloud?url=${encodeURIComponent(bestMatch.url)}`;
 
-    const client_id = await scdl.getClientID();
-    const streamRes = await fetch(trans.url + '?client_id=' + client_id);
-    const streamInfo: any = await streamRes.json();
-    
-    if (!streamInfo || !streamInfo.url) {
-      return res.status(404).json({ error: 'Stream URL unavailable' });
-    }
+    let durationSec = 210;
+    try {
+      const songInfo = await client.getSongInfo(bestMatch.url);
+      if (songInfo && songInfo.duration) {
+        durationSec = Math.round(songInfo.duration / 1000);
+      }
+    } catch (e) {}
 
     return res.json({
-      audioUrl: streamInfo.url,
-      duration: Math.round(bestMatch.duration || 180000),
-      title: bestMatch.title,
-      artist: bestMatch.user?.username || artistQuery,
+      audioUrl: streamUrl,
+      duration: durationSec,
+      title: bestMatch.name || bestMatch.title || titleQuery,
+      artist: bestMatch.artist || bestMatch.author?.name || artistQuery,
       youtubeId: null
     });
   } catch (e: any) {
