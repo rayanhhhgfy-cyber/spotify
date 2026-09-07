@@ -57,8 +57,27 @@ export const formatAudiusSong = (r: any): Song => {
 };
 
 export const resolveFullLengthStream = async (title: string, artist: string, forceAudius = false): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string; backupYoutubeIds?: string[] } | null> => {
-  // 1. First priority: Server-side YouTube & full song resolver
+  // 1. First priority: SoundCloud for native direct audio streams (works in background flawlessly)
   if (!forceAudius) {
+    try {
+      const query = `${title} ${artist}`.trim();
+      const res = await fetch(`/api/resolve/soundcloud?q=${encodeURIComponent(query)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.audioUrl) {
+          return {
+            audioUrl: data.audioUrl,
+            mirrors: [data.audioUrl],
+            duration: data.duration || 240000,
+            youtubeId: undefined
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('SoundCloud resolve error:', e);
+    }
+
+    // 2. Fallback: Server-side YouTube & full song resolver (uses Iframe, pauses in background)
     try {
       const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
       if (res.ok) {

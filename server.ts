@@ -707,6 +707,38 @@ app.get('/api/shared/:id', (req, res) => {
   return res.json({ success: true, shareId: id, playlist });
 });
 
+app.get('/api/resolve/soundcloud', async (req, res) => {
+  try {
+    const q = req.query.q as string;
+    if (!q) return res.status(400).json({ error: 'Missing query' });
+    
+    // dynamically import soundcloud-downloader
+    const scdl = (await import('soundcloud-downloader')).default;
+    const search = await scdl.search({ query: q, resourceType: 'tracks', limit: 3 });
+    if (!search || !search.collection || search.collection.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    
+    const track = search.collection[0];
+    const info = await scdl.getInfo(track.permalink_url);
+    const trans = info.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || info.media.transcodings[0];
+    const client_id = await scdl.getClientID();
+    
+    const streamRes = await fetch(trans.url + '?client_id=' + client_id);
+    const streamInfo = await streamRes.json();
+    
+    return res.json({
+      audioUrl: streamInfo.url,
+      duration: Math.round(track.duration / 1000),
+      title: track.title,
+      youtubeId: null // We don't want youtube engine
+    });
+  } catch (e: any) {
+    console.error('SoundCloud resolve error:', e);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // Vite middleware & Static serving
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
