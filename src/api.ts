@@ -60,8 +60,8 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
   // 1. First priority: SoundCloud for native direct audio streams (works in background flawlessly)
   if (!forceAudius) {
     try {
-      const query = `${title} ${artist}`.trim();
-      const res = await fetch(`/api/resolve/soundcloud?q=${encodeURIComponent(query)}`);
+      const titleClean = title.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+      const res = await fetch(`/api/resolve/soundcloud?title=${encodeURIComponent(titleClean)}&artist=${encodeURIComponent(artist)}`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.audioUrl) {
@@ -77,7 +77,7 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
       console.warn('SoundCloud resolve error:', e);
     }
 
-    // 2. Fallback: Server-side YouTube & full song resolver (uses Iframe, pauses in background)
+    // 2. Fallback: Server-side YouTube & full song resolver
     try {
       const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
       if (res.ok) {

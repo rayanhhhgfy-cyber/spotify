@@ -709,29 +709,66 @@ app.get('/api/shared/:id', (req, res) => {
 
 app.get('/api/resolve/soundcloud', async (req, res) => {
   try {
-    const q = req.query.q as string;
-    if (!q) return res.status(400).json({ error: 'Missing query' });
+    const q = (req.query.q as string || '').trim();
+    const titleQuery = (req.query.title as string || '').trim().toLowerCase();
+    const artistQuery = (req.query.artist as string || '').trim().toLowerCase();
+    if (!q && !titleQuery) return res.status(400).json({ error: 'Missing query' });
     
-    // dynamically import soundcloud-downloader
-    const scdl = (await import('soundcloud-downloader')).default;
-    const search = await scdl.search({ query: q, resourceType: 'tracks', limit: 3 });
-    if (!search || !search.collection || search.collection.length === 0) {
+    const scdlModule = await import('soundcloud-downloader');
+    const scdl = (scdlModule.default as any).default || scdlModule.default || scdlModule;
+    const searchQuery = q || `${titleQuery} ${artistQuery}`.trim();
+    const search: any = await scdl.search({ query: searchQuery, resourceType: 'tracks', limit: 10 });
+    if (!search || !search.collection || !Array.isArray(search.collection) || search.collection.length === 0) {
       return res.status(404).json({ error: 'Not found' });
     }
     
-    const track = search.collection[0];
-    const info = await scdl.getInfo(track.permalink_url);
-    const trans = info.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || info.media.transcodings[0];
+    const cleanTitle = titleQuery.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+
+    const scoredTracks = search.collection.map((track: any) => {
+      let score = 0;
+      const trackTitle = (track.title || '').toLowerCase();
+      const uName = (track.user?.username || '').toLowerCase();
+      const uHandle = (track.user?.permalink || '').toLowerCase();
+
+      if (cleanTitle && trackTitle.includes(cleanTitle)) score += 50;
+      if (artistQuery && (trackTitle.includes(artistQuery) || uName.includes(artistQuery) || uHandle.includes(artistQuery))) score += 40;
+
+      const badWords = ['remix', 'remake', 'cover', 'live', 'sped up', 'slowed', '8d', '10 hours', 'karaoke', 'instrumental', 'bass boosted'];
+      for (const bw of badWords) {
+        if (!searchQuery.toLowerCase().includes(bw) && trackTitle.includes(bw)) {
+          score -= 30;
+        }
+      }
+
+      const durMs = track.duration || 0;
+      if (durMs >= 90000 && durMs <= 450000) score += 20;
+
+      return { track, score };
+    });
+
+    scoredTracks.sort((a: any, b: any) => b.score - a.score);
+    const bestMatch = scoredTracks[0]?.track || search.collection[0];
+
+    const info: any = await scdl.getInfo(bestMatch.permalink_url);
+    const trans = info.media?.transcodings?.find((t: any) => t.format?.protocol === 'progressive') || info.media?.transcodings?.[0];
+    if (!trans) {
+      return res.status(404).json({ error: 'No stream available' });
+    }
+
     const client_id = await scdl.getClientID();
-    
     const streamRes = await fetch(trans.url + '?client_id=' + client_id);
-    const streamInfo = await streamRes.json();
+    const streamInfo: any = await streamRes.json();
     
+    if (!streamInfo || !streamInfo.url) {
+      return res.status(404).json({ error: 'Stream URL unavailable' });
+    }
+
     return res.json({
       audioUrl: streamInfo.url,
-      duration: Math.round(track.duration / 1000),
-      title: track.title,
-      youtubeId: null // We don't want youtube engine
+      duration: Math.round(bestMatch.duration || 180000),
+      title: bestMatch.title,
+      artist: bestMatch.user?.username || artistQuery,
+      youtubeId: null
     });
   } catch (e: any) {
     console.error('SoundCloud resolve error:', e);
