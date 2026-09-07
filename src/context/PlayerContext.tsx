@@ -52,6 +52,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const userInitiatedPauseRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const prewarmedTrackIdRef = useRef<string | null>(null);
+  const activeEngineRef = useRef<'youtube' | 'audio'>('audio');
+
+  useEffect(() => {
+    activeEngineRef.current = activeEngine;
+  }, [activeEngine]);
 
   useEffect(() => {
     repeatModeRef.current = repeatMode;
@@ -87,6 +92,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         }
       }
     } catch (e) {}
+
+    // CRITICAL FIX: If using YouTube engine, play a silent loop on the native audio element to keep iOS background media session alive
+    if (activeEngineRef.current === 'youtube' && audioRef.current) {
+      if (!audioRef.current.src || !audioRef.current.src.includes('data:audio/mpeg')) {
+        audioRef.current.src = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU5LjI3LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIwBRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFRUVFR//NVAAAAA0AAAAgAAAADhABAAABAAACdSAwAAAAAAAAAAAAAAH//NRAAAAAwAAAAgAAH////0QAAAAEAAAAcAAAAAwAAAAMAAAD//NUAAAAAwAAAAgAAH////0QAAAAEAAAAcAAAAAwAAAAMAAAD//NUAAAAAwAAAAgAAH////0QAAAAEAAAAcAAAAAwAAAAMAAAD//NUAAAAAwAAAAgAAH////0QAAAAEAAAAcAAAAAwAAAAMAAAD';
+        audioRef.current.loop = true;
+      }
+      if (audioRef.current.paused && isPlayingRef.current && !userInitiatedPauseRef.current) {
+        audioRef.current.play().catch(() => {});
+      }
+    }
   };
 
   const pauseAudioSession = () => {
@@ -419,12 +435,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     // If we have a youtubeId, we use the YouTube Engine directly. Skip resolution.
     if (targetSong.youtubeId) {
       setActiveEngine('youtube');
+      activeEngineRef.current = 'youtube';
       userInitiatedPauseRef.current = false;
       setIsPlaying(true);
       isPlayingRef.current = true;
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      ensureAudioSessionActive();
       return; // Skip audio URL resolution
     }
 
@@ -443,15 +458,14 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           setCurrentSong(targetSong);
           currentSongRef.current = targetSong;
           setActiveEngine('youtube');
+          activeEngineRef.current = 'youtube';
           if (ytPlayerRef.current) {
             try {
               ytPlayerRef.current.loadVideoById(resolved.youtubeId);
               ytPlayerRef.current.playVideo();
             } catch(e) {}
           }
-          if (audioRef.current && !audioRef.current.paused) {
-            audioRef.current.pause();
-          }
+          ensureAudioSessionActive();
           return;
         }
         if (resolved.duration) {
@@ -512,17 +526,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     // Synchronously bind and start player within the user gesture
     if (songWithUrl.youtubeId) {
       setActiveEngine('youtube');
+      activeEngineRef.current = 'youtube';
       if (ytPlayerRef.current) {
         try {
           ytPlayerRef.current.loadVideoById(songWithUrl.youtubeId);
           ytPlayerRef.current.playVideo();
         } catch(e) {}
       }
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      ensureAudioSessionActive();
     } else if (audioRef.current && streamUrl) {
       setActiveEngine('audio');
+      activeEngineRef.current = 'audio';
       if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       const currentSrc = audioRef.current.src || '';
       if (currentSrc !== streamUrl && !currentSrc.endsWith(streamUrl)) {
@@ -571,17 +585,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (firstWithUrl.youtubeId) {
       setActiveEngine('youtube');
+      activeEngineRef.current = 'youtube';
       if (ytPlayerRef.current) {
         try {
           ytPlayerRef.current.loadVideoById(firstWithUrl.youtubeId);
           ytPlayerRef.current.playVideo();
         } catch(e) {}
       }
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      ensureAudioSessionActive();
     } else if (audioRef.current && streamUrl) {
       setActiveEngine('audio');
+      activeEngineRef.current = 'audio';
       if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       audioRef.current.src = streamUrl;
       const playPromise = audioRef.current.play();
@@ -614,17 +628,17 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     if (songWithUrl.youtubeId) {
       setActiveEngine('youtube');
+      activeEngineRef.current = 'youtube';
       if (ytPlayerRef.current) {
         try {
           ytPlayerRef.current.loadVideoById(songWithUrl.youtubeId);
           ytPlayerRef.current.playVideo();
         } catch(e) {}
       }
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
+      ensureAudioSessionActive();
     } else if (audioRef.current && streamUrl) {
       setActiveEngine('audio');
+      activeEngineRef.current = 'audio';
       if (ytPlayerRef.current) { try { ytPlayerRef.current.pauseVideo(); } catch(e){} }
       audioRef.current.src = streamUrl;
       const playPromise = audioRef.current.play();
@@ -648,6 +662,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (activeEngine === 'youtube' && ytPlayerRef.current) {
         try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
       } else {
         if (playPromiseRef.current !== undefined) {
           (playPromiseRef.current as Promise<void>).then(() => {
@@ -716,8 +733,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       const nextS = queue[nextIdx];
       if (nextS && nextS.youtubeId) {
           setActiveEngine('youtube');
+          activeEngineRef.current = 'youtube';
           if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
-          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+          ensureAudioSessionActive();
       }
       _playDirectly(nextS);
       return;
@@ -727,8 +745,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       const nextS = queue[idx + 1];
       if (nextS && nextS.youtubeId) {
           setActiveEngine('youtube');
+          activeEngineRef.current = 'youtube';
           if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
-          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+          ensureAudioSessionActive();
       }
       _playDirectly(nextS);
     } else {
@@ -736,8 +755,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       const nextS = queue[0];
       if (nextS && nextS.youtubeId) {
           setActiveEngine('youtube');
+          activeEngineRef.current = 'youtube';
           if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(nextS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
-          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+          ensureAudioSessionActive();
       }
       _playDirectly(nextS);
     }
@@ -752,8 +772,9 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       const prevS = queue[idx - 1];
       if (prevS && prevS.youtubeId) {
           setActiveEngine('youtube');
+          activeEngineRef.current = 'youtube';
           if (ytPlayerRef.current) { try { ytPlayerRef.current.loadVideoById(prevS.youtubeId); ytPlayerRef.current.playVideo(); } catch(e){} }
-          if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); }
+          ensureAudioSessionActive();
       }
       _playDirectly(prevS);
     }
