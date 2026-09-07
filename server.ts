@@ -737,9 +737,17 @@ app.get('/api/stream/soundcloud', async (req, res) => {
       return res.status(404).send('Song info unavailable');
     }
 
-    const stream = await songInfo.downloadProgressive();
+    let stream: any = null;
+    try {
+      stream = await songInfo.downloadHLS();
+    } catch (e) {
+      try {
+        stream = await songInfo.downloadProgressive();
+      } catch (e2) {}
+    }
+
     if (!stream) {
-      return res.status(404).send('Progressive stream unavailable');
+      return res.status(404).send('Stream unavailable');
     }
 
     res.setHeader('Content-Type', 'audio/mpeg');
@@ -753,7 +761,7 @@ app.get('/api/stream/soundcloud', async (req, res) => {
     stream.pipe(res);
 
     req.on('close', () => {
-      if (stream.destroy) stream.destroy();
+      if (stream && stream.destroy) stream.destroy();
     });
   } catch (e: any) {
     console.error('SoundCloud streaming proxy error:', e);
@@ -800,8 +808,13 @@ app.get('/api/resolve/soundcloud', async (req, res) => {
     });
 
     scoredTracks.sort((a: any, b: any) => b.score - a.score);
-    const bestMatch = scoredTracks[0]?.track || searchResults[0];
+    const topScored = scoredTracks[0];
 
+    if (!topScored || topScored.score < 30) {
+      return res.status(404).json({ error: 'No confident match found on SoundCloud' });
+    }
+
+    const bestMatch = topScored.track;
     const streamUrl = `/api/stream/soundcloud?url=${encodeURIComponent(bestMatch.url)}`;
 
     let durationSec = 210;
