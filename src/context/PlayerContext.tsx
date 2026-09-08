@@ -162,6 +162,42 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [isPlaying]);
 
+  // Background resilience heartbeat: iOS/Android can silently reject a single resume
+  // attempt (e.g. right when the screen locks) with no further retry, leaving isPlaying
+  // stuck "true" while the audio element is actually paused forever. This periodically
+  // re-asserts the session and retries play() every few seconds while backgrounded, so a
+  // later attempt (e.g. aligned with a buffer refill or lock-screen control event) can
+  // succeed even if the first one was rejected. Does not touch foreground behavior.
+  useEffect(() => {
+    if (!isPlaying) return;
+    const heartbeat = setInterval(() => {
+      if (document.visibilityState !== 'hidden') return;
+      if (!isPlayingRef.current || userInitiatedPauseRef.current) return;
+
+      applyAudioSessionPlayback();
+      try {
+        if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume().catch(() => {});
+        }
+      } catch (e) {}
+      if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.playbackState = 'playing'; } catch (e) {}
+      }
+
+      if (activeEngineRef.current === 'youtube' && ytPlayerRef.current) {
+        try {
+          if (typeof ytPlayerRef.current.getPlayerState === 'function' && ytPlayerRef.current.getPlayerState() !== 1) {
+            ytPlayerRef.current.playVideo();
+          }
+        } catch (e) {}
+        ensureAudioSessionActive();
+      } else if (audioRef.current && audioRef.current.paused) {
+        audioRef.current.play().catch(() => {});
+      }
+    }, 3000);
+    return () => clearInterval(heartbeat);
+  }, [isPlaying]);
+
   // Pre-warm the next track's stream 15 seconds before the current track finishes
   const prewarmNextTrack = () => {
     if (!currentSongRef.current || queue.length === 0) return;
