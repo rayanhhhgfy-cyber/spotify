@@ -854,17 +854,18 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         id="yt-audio-player-container"
         style={{
           position: 'fixed',
-          top: -9999,
-          left: -9999,
-          width: 1,
-          height: 1,
-          opacity: 0,
-          zIndex: -1,
+          bottom: 100,
+          right: 16,
+          width: activeEngine === 'youtube' ? 240 : 1,
+          height: activeEngine === 'youtube' ? 135 : 1,
+          opacity: activeEngine === 'youtube' ? 0.01 : 0,
+          zIndex: activeEngine === 'youtube' ? 1 : -1,
           pointerEvents: 'none',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          borderRadius: 8
         }}
       >
-        <div id="yt-audio-player" style={{ width: 1, height: 1 }}></div>
+        <div id="yt-audio-player" style={{ width: '100%', height: '100%' }}></div>
       </div>
 
       {/* HTML5 Audio Element for native background 24/7 audio playback */}

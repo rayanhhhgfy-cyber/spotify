@@ -57,7 +57,7 @@ export const formatAudiusSong = (r: any): Song => {
 };
 
 export const resolveFullLengthStream = async (title: string, artist: string, forceAudius = false): Promise<{ audioUrl: string; mirrors: string[]; duration?: number; youtubeId?: string; backupYoutubeIds?: string[] } | null> => {
-  // 1. First priority: SoundCloud for native direct audio streams (works in background flawlessly)
+  // 1. Priority 1: High-confidence SoundCloud resolution
   if (!forceAudius) {
     try {
       const titleClean = title.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
@@ -76,8 +76,10 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
     } catch (e) {
       console.warn('SoundCloud resolve error:', e);
     }
+  }
 
-    // 2. Fallback: Server-side YouTube & full song resolver
+  // 2. Priority 2: Backend YouTube stream resolver
+  if (!forceAudius) {
     try {
       const res = await fetch(`/api/resolve?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`);
       if (res.ok) {
@@ -97,7 +99,7 @@ export const resolveFullLengthStream = async (title: string, artist: string, for
     }
   }
 
-  // 2. Query Audius decentralized catalog for direct full-length MP3 stream
+  // 3. Priority 3: Query Audius decentralized catalog for direct full-length MP3 stream
   const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
   const queries: string[] = [
     `${title} ${artist}`.trim(),
