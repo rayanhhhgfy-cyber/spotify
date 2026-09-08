@@ -377,7 +377,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Only fallback to Audius/iTunes if it's NOT a YouTube-based song (e.g. from local search)
     if (!song.audioUrl || song.audioUrl.startsWith('/api/stream/youtube')) {
-      resolveFullLengthStream(song.title, song.artist, true).then(resolved => {
+      resolveFullLengthStream(song.title, song.artist, true, song.duration).then(resolved => {
         if (resolved && resolved.audioUrl && audioRef.current && currentSongRef.current?.id === song.id) {
           song.audioUrl = resolved.audioUrl;
           song.streamMirrors = resolved.mirrors && resolved.mirrors.length > 0 ? resolved.mirrors : [resolved.audioUrl];
@@ -438,7 +438,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     const needsResolution = !targetSong.audioUrl || targetSong.audioUrl.startsWith('/api/stream/youtube') || targetSong.duration <= 30000;
 
     if (needsResolution) {
-      const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist);
+      const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist, false, targetSong.duration);
       if (resolved && resolved.audioUrl) {
         targetSong.audioUrl = resolved.audioUrl;
         targetSong.streamMirrors = resolved.mirrors && resolved.mirrors.length > 0 ? resolved.mirrors : [resolved.audioUrl];

@@ -709,18 +709,57 @@ app.get('/api/shared/:id', (req, res) => {
 
 app.get('/api/resolve/soundcloud', async (req, res) => {
   try {
-    const q = req.query.q as string;
-    if (!q) return res.status(400).json({ error: 'Missing query' });
+    const reqTitle = (req.query.title as string || '').trim();
+    const reqArtist = (req.query.artist as string || '').trim();
+    const expectedDurationStr = req.query.duration as string;
     
-    // dynamically import soundcloud-downloader
-    const scdl = (await import('soundcloud-downloader')).default;
-    const search = await scdl.search({ query: q, resourceType: 'tracks', limit: 3 });
+    if (!reqTitle) return res.status(400).json({ error: 'Missing title' });
+    
+    let q = `${reqTitle} ${reqArtist}`.trim();
+    let scQuery = q;
+    let translatedTitle = reqTitle;
+    
+    // 1. YouTube translation step to get localized / precise title
+    try {
+      const ytRes = await ytSearch(q);
+      if (ytRes && ytRes.videos && ytRes.videos.length > 0) {
+        const ytTitle = ytRes.videos[0].title;
+        scQuery = ytTitle.replace(/[\(\[].*?[\)\]]/g, '').replace(/\|.*/, '').trim();
+        translatedTitle = scQuery; 
+      }
+    } catch (e) {
+      console.warn('[SC Resolve] YT translation step failed', e);
+    }
+    
+    const scdl = (await import('soundcloud-downloader')).default || (await import('soundcloud-downloader'));
+    // Request top 5 results (SoundCloud relevance sorts the best matches first)
+    const search = await scdl.search({ query: scQuery, resourceType: 'tracks', limit: 5 });
+    
     if (!search || !search.collection || search.collection.length === 0) {
       return res.status(404).json({ error: 'Not found' });
     }
     
-    const track = search.collection[0];
-    const info = await scdl.getInfo(track.permalink_url);
+    let validTracks = search.collection;
+    let bestTrack = validTracks[0];
+    
+    if (expectedDurationStr) {
+      const expectedDuration = parseInt(expectedDurationStr, 10);
+      if (!isNaN(expectedDuration) && expectedDuration > 0) {
+        let closestDiff = Infinity;
+        
+        for (const track of validTracks) {
+          const diff = Math.abs(track.duration - expectedDuration);
+          const tolerance = expectedDuration * 0.35; // 35% tolerance to catch remixes of varying lengths
+          
+          if (diff < tolerance && diff < closestDiff) {
+            closestDiff = diff;
+            bestTrack = track;
+          }
+        }
+      }
+    }
+    
+    const info = await scdl.getInfo(bestTrack.permalink_url);
     const trans = info.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || info.media.transcodings[0];
     const client_id = await scdl.getClientID();
     
@@ -729,8 +768,8 @@ app.get('/api/resolve/soundcloud', async (req, res) => {
     
     return res.json({
       audioUrl: streamInfo.url,
-      duration: Math.round(track.duration / 1000),
-      title: track.title,
+      duration: Math.round(bestTrack.duration / 1000),
+      title: bestTrack.title,
       youtubeId: null // We don't want youtube engine
     });
   } catch (e: any) {
