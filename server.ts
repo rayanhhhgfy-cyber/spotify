@@ -794,17 +794,21 @@ app.get('/api/stream/soundcloud', async (req, res) => {
     if (!songInfo) return res.status(404).send('Song info unavailable');
 
     let stream: any = null;
+    let contentType = 'audio/mp4';
+
     try {
-      stream = await songInfo.downloadProgressive();
+      stream = await songInfo.downloadHLS();
+      contentType = 'audio/mp4';
     } catch (e) {
       try {
-        stream = await songInfo.downloadHLS();
+        stream = await songInfo.downloadProgressive();
+        contentType = 'audio/mpeg';
       } catch (e2) {}
     }
 
     if (!stream) return res.status(404).send('Stream unavailable');
 
-    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Type', contentType);
     res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400');
 
