@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import https from 'https';
 import ytSearch from 'yt-search';
 import ytdl from '@distube/ytdl-core';
@@ -17,12 +17,20 @@ const ytdlpPath = fs.existsSync(path.join(process.cwd(), 'yt-dlp'))
   ? path.join(process.cwd(), 'bin', 'yt-dlp')
   : '/usr/local/bin/yt-dlp';
 
+let ytDlpUsable = false;
+
 try {
   if (fs.existsSync(ytdlpPath)) {
     fs.chmodSync(ytdlpPath, '755');
+    // Verify it actually executes and is not broken by architecture mismatch
+    const versionStr = execFileSync(ytdlpPath, ['--version'], { encoding: 'utf-8', timeout: 3000 }).trim();
+    console.log(`yt-dlp is verified and usable. Version: ${versionStr}`);
+    ytDlpUsable = true;
+  } else {
+    console.warn(`yt-dlp not found at ${ytdlpPath}. Audio extraction will rely on fallbacks or YouTube iframe.`);
   }
 } catch (e) {
-  console.warn('Failed to chmod yt-dlp:', e);
+  console.warn('Failed to execute yt-dlp at startup. Marking as unusable:', e);
 }
 
 const streamUrlCache = new Map<string, { url: string; expiresAt: number }>();
@@ -271,13 +279,13 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
     }
 
     // 2. Extract with yt-dlp if not cached
-    if (!streamUrl && fs.existsSync(ytdlpPath)) {
+    if (!streamUrl && ytDlpUsable) {
       try {
         const extractedUrl = await new Promise<string>((resolve, reject) => {
           execFile(
             ytdlpPath,
-            ['-g', '-f', '140/ba[ext=m4a]/ba/b', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
-            { timeout: 12000 },
+            ['-g', '-f', '251/bestaudio', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
+            { timeout: 8000 },
             (err, stdout) => {
               if (err) return reject(err);
               const lines = stdout.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
@@ -297,35 +305,10 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
         }
       } catch (e: any) {
         // Silently catch yt-dlp failures as YouTube blocks datacenter IPs
-        // The frontend will automatically fall back to iTunes/Audius if this endpoint returns 404
       }
     }
 
-    // 3. Fallback to Piped API stream if yt-dlp did not produce URL
-    if (!streamUrl) {
-      const pipedInstances = [
-        'https://pipedapi.kavin.rocks',
-        'https://api.piped.privacydev.net',
-        'https://pipedapi.adminforge.de'
-      ];
-      for (const instance of pipedInstances) {
-        try {
-          const resp = await fetch(`${instance}/streams/${id}`, { signal: AbortSignal.timeout(3500) });
-          if (resp.ok) {
-            const data: any = await resp.json();
-            const audioStreams = data.audioStreams || [];
-            const best = audioStreams.find((s: any) => s.mimeType?.includes('mp4') || s.mimeType?.includes('audio')) || audioStreams[0];
-            if (best?.url) {
-              streamUrl = best.url;
-              streamUrlCache.set(id, { url: best.url, expiresAt: Date.now() + 3 * 60 * 60 * 1000 });
-              break;
-            }
-          }
-        } catch (e) {}
-      }
-    }
-
-    // 4. Fallback to ytdl if still no stream
+    // 3. Fallback to ytdl if still no stream
     if (!streamUrl) {
       try {
         const info = await ytdl.getInfo(id);
@@ -715,55 +698,109 @@ app.get('/api/resolve/soundcloud', async (req, res) => {
     
     if (!reqTitle) return res.status(400).json({ error: 'Missing title' });
     
+    const scdl: any = (await import('soundcloud-downloader')).default || (await import('soundcloud-downloader'));
     let q = `${reqTitle} ${reqArtist}`.trim();
-    let scQuery = q;
+    let searchResults: any[] = [];
     let translatedTitle = reqTitle;
+    const hasArabic = /[\u0600-\u06FF]/.test(q);
+
+    // Fast path: search SC directly first
+    const scdlPromise = scdl.search({ query: q, resourceType: 'tracks', limit: 15 }).catch(() => null);
     
-    // 1. YouTube translation step to get localized / precise title
-    try {
-      const ytRes = await ytSearch(q);
+    // If it lacks Arabic chars, it might be romanized. We need YT to translate it concurrently.
+    let ytPromise: Promise<any> | null = null;
+    if (!hasArabic) {
+      ytPromise = ytSearch(q).catch(() => null);
+    }
+
+    const firstScRes = await scdlPromise;
+    if (firstScRes && firstScRes.collection) {
+       searchResults = firstScRes.collection;
+    }
+
+    // Wait for YT translation if we didn't get perfect hits OR if it's not Arabic
+    if (ytPromise) {
+      const ytRes = await ytPromise;
       if (ytRes && ytRes.videos && ytRes.videos.length > 0) {
         const ytTitle = ytRes.videos[0].title;
-        scQuery = ytTitle.replace(/[\(\[].*?[\)\]]/g, '').replace(/\|.*/, '').trim();
-        translatedTitle = scQuery; 
+        const localizedQuery = ytTitle.replace(/[\(\[].*?[\)\]]/g, '').replace(/\|.*/, '').trim();
+        translatedTitle = localizedQuery;
+        
+        // If the localized query is significantly different (e.g., contains Arabic now), search SC again!
+        if (/[\u0600-\u06FF]/.test(localizedQuery) && !hasArabic) {
+           const secondScRes = await scdl.search({ query: localizedQuery, resourceType: 'tracks', limit: 20 }).catch(() => null);
+           if (secondScRes && secondScRes.collection) {
+              searchResults = [...searchResults, ...secondScRes.collection];
+           }
+        }
       }
-    } catch (e) {
-      console.warn('[SC Resolve] YT translation step failed', e);
     }
-    
-    const scdl = (await import('soundcloud-downloader')).default || (await import('soundcloud-downloader'));
-    // Request top 5 results (SoundCloud relevance sorts the best matches first)
-    const search = await scdl.search({ query: scQuery, resourceType: 'tracks', limit: 5 });
-    
-    if (!search || !search.collection || search.collection.length === 0) {
-      return res.status(404).json({ error: 'Not found' });
+
+    if (searchResults.length === 0) {
+      return res.status(404).json({ error: 'Not found on SoundCloud' });
     }
-    
-    let validTracks = search.collection;
-    let bestTrack = validTracks[0];
+
+    // Remove exact duplicates from combined searches
+    const uniqueTracks = Array.from(new Map(searchResults.map(t => [t.id, t])).values());
+
+    let bestTrack = uniqueTracks[0];
     
     if (expectedDurationStr) {
       const expectedDuration = parseInt(expectedDurationStr, 10);
       if (!isNaN(expectedDuration) && expectedDuration > 0) {
-        let closestDiff = Infinity;
         
-        for (const track of validTracks) {
-          const diff = Math.abs(track.duration - expectedDuration);
-          const tolerance = expectedDuration * 0.35; // 35% tolerance to catch remixes of varying lengths
-          
-          if (diff < tolerance && diff < closestDiff) {
-            closestDiff = diff;
-            bestTrack = track;
-          }
+        const artistWords = reqArtist.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+        const titleWords = translatedTitle.toLowerCase().split(/\s+/).filter(w => w.length > 2 && w !== '-');
+
+        const rejectWords = ["remix", "fusion", "trap", "latin", "slowed", "reverb", "cover", "instrumental", "karaoke", "dj", "mix", "traditional", "sped up", "8d", "bass boosted"];
+
+        // Score the tracks: closer duration = better, higher plays = better
+        const scoredTracks = uniqueTracks.filter(t => {
+           const tTitle = t.title.toLowerCase();
+           return !rejectWords.some(w => tTitle.includes(w));
+        }).map(t => {
+           const diffRatio = Math.abs(t.duration - expectedDuration) / expectedDuration;
+           const playsScore = Math.log10(t.playback_count || 1);
+           
+           const tTitle = t.title.toLowerCase();
+           let overlap = 0;
+           for (let w of titleWords) {
+              if (tTitle.includes(w)) overlap++;
+           }
+           
+           if (reqTitle && tTitle.includes(reqTitle.toLowerCase())) {
+              overlap += 2;
+           }
+
+           // Duration penalty is massive (15 * ratio). A 20% diff gives -3 score.
+           // Playback score ranges from 2 (100 plays) to 7 (10M plays).
+           // Overlap score is massive (20 * overlap) to guarantee title match.
+           const score = (playsScore * 2) - (diffRatio * 15) + (overlap * 20);
+           return { track: t, score, overlap };
+        }).filter(t => t.overlap > 0 || titleWords.length === 0).sort((a, b) => b.score - a.score);
+
+        if (scoredTracks.length > 0) {
+           bestTrack = scoredTracks[0].track;
+        } else {
+           return res.status(404).json({ error: 'No acceptable tracks found on SoundCloud' });
         }
       }
     }
     
-    const info = await scdl.getInfo(bestTrack.permalink_url);
-    const trans = info.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || info.media.transcodings[0];
-    const client_id = await scdl.getClientID();
+    // We can extract trans.url without scdl.getInfo if it already has media.transcodings
+    let transUrl = '';
+    if (bestTrack.media && bestTrack.media.transcodings && bestTrack.media.transcodings.length > 0) {
+       const trans = bestTrack.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || bestTrack.media.transcodings[0];
+       transUrl = trans.url;
+    } else {
+       // fallback if missing
+       const info = await scdl.getInfo(bestTrack.permalink_url);
+       const trans = info.media.transcodings.find((t: any) => t.format.protocol === 'progressive') || info.media.transcodings[0];
+       transUrl = trans.url;
+    }
     
-    const streamRes = await fetch(trans.url + '?client_id=' + client_id);
+    const client_id = await scdl.getClientID();
+    const streamRes = await fetch(transUrl + '?client_id=' + client_id);
     const streamInfo = await streamRes.json();
     
     return res.json({

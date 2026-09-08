@@ -435,7 +435,8 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
 
     let targetSong = { ...song };
 
-    const needsResolution = !targetSong.audioUrl || targetSong.audioUrl.startsWith('/api/stream/youtube') || targetSong.duration <= 30000;
+    const hasYoutubeId = !!targetSong.youtubeId;
+    const needsResolution = (!targetSong.audioUrl && !hasYoutubeId) || (targetSong.audioUrl && targetSong.audioUrl.includes('apple.com')) || targetSong.duration <= 30000;
 
     if (needsResolution) {
       const resolved = await resolveFullLengthStream(targetSong.title, targetSong.artist, false, targetSong.duration);
@@ -468,7 +469,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         setCurrentSong(targetSong);
         currentSongRef.current = targetSong;
       }
+    } else if (hasYoutubeId && !targetSong.audioUrl) {
+      targetSong.audioUrl = `/api/stream/youtube/${targetSong.youtubeId}`;
+      targetSong.streamMirrors = [targetSong.audioUrl];
+      targetSong.isFullLength = true;
     }
+
+    // Set again to catch targetSong updates
+    setCurrentSong(targetSong);
+    currentSongRef.current = targetSong;
 
     setActiveEngine('audio');
     if (ytPlayerRef.current && ytPlayerRef.current.pauseVideo) {

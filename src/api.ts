@@ -232,6 +232,10 @@ export const downloadSong = async (song: Song): Promise<boolean> => {
   try {
     let finalAudioUrl = song.audioUrl;
     
+    if (song.youtubeId && (!finalAudioUrl || finalAudioUrl.includes('apple.com'))) {
+      finalAudioUrl = `/api/stream/youtube/${song.youtubeId}`;
+    }
+
     // If no audioUrl or if it's an iTunes 30s preview, check if Audius has a verified full track match
     if (!finalAudioUrl || finalAudioUrl.includes('apple.com') || finalAudioUrl.includes('mzstatic')) {
       const fallback = await resolveFullLengthStream(song.title, song.artist, true);
