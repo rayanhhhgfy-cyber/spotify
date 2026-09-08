@@ -107,10 +107,10 @@ app.get('/api/search', async (req, res) => {
   if (!query) return res.json({ songs: [] });
   try {
     const ytPromise = ytSearch(query)
-      .then(r => (r.videos || []).slice(0, 10).map(formatYtVideo))
+      .then(r => (r.videos || []).slice(0, 15).map(formatYtVideo))
       .catch(() => []);
 
-    const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=10`)
+    const itunesPromise = fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=song&limit=8`)
       .then(async r => {
         if (!r.ok) return [];
         const data = await r.json();
@@ -167,7 +167,7 @@ app.get('/api/search', async (req, res) => {
     });
 
     return res.json({ songs: unique });
-  } catch (error) {
+  } catch (error: any) {
     return res.status(500).json({ error: error.message, songs: [] });
   }
 });
@@ -772,17 +772,21 @@ app.get('/api/resolve/soundcloud', async (req, res) => {
               overlap += 2;
            }
 
+           const hasProgressive = t.media?.transcodings?.some((x: any) => x.format?.protocol === 'progressive');
+           const progressiveBonus = hasProgressive ? 35 : 0;
+
            // Duration penalty is massive (15 * ratio). A 20% diff gives -3 score.
            // Playback score ranges from 2 (100 plays) to 7 (10M plays).
            // Overlap score is massive (20 * overlap) to guarantee title match.
-           const score = (playsScore * 2) - (diffRatio * 15) + (overlap * 20);
+           const score = (playsScore * 2) - (diffRatio * 15) + (overlap * 20) + progressiveBonus;
            return { track: t, score, overlap };
         }).filter(t => t.overlap > 0 || titleWords.length === 0).sort((a, b) => b.score - a.score);
 
         if (scoredTracks.length > 0) {
            bestTrack = scoredTracks[0].track;
         } else {
-           return res.status(404).json({ error: 'No acceptable tracks found on SoundCloud' });
+           const fallbackTracks = [...uniqueTracks].sort((a, b) => (b.playback_count || 0) - (a.playback_count || 0));
+           bestTrack = fallbackTracks[0] || uniqueTracks[0];
         }
       }
     }
