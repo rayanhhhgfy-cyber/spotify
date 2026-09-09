@@ -641,19 +641,11 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         targetSong.isFullLength = true;
         setCurrentSong(targetSong);
         currentSongRef.current = targetSong;
-        setActiveEngine('youtube');
-        activeEngineRef.current = 'youtube';
-        if (audioRef.current && !audioRef.current.paused) {
-          audioRef.current.pause();
-        }
-        if (ytPlayerRef.current) {
-          try {
-            ytPlayerRef.current.loadVideoById(resolved.youtubeId);
-            ytPlayerRef.current.playVideo();
-            setIsPlaying(true);
-            isPlayingRef.current = true;
-          } catch (e) {}
-        }
+        // Same reasoning as step 1: use the native audio proxy, not the iframe engine, so this
+        // track (typically library/imported songs that didn't already carry a youtubeId, e.g.
+        // Spotify-playlist imports resolved by title/artist match) survives backgrounding just
+        // like tracks that came with a youtubeId from search.
+        loadAndPlayStream(`/api/stream/youtube/${resolved.youtubeId}`);
         ensureAudioSessionActive();
         return;
       } else if (resolved.audioUrl && !resolved.audioUrl.startsWith('/api/stream/youtube')) {
