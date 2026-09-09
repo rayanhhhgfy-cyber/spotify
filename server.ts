@@ -279,47 +279,31 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
 
     // 2. Extract with yt-dlp if not cached
     if (!streamUrl && ytDlpUsable) {
-      // Try yt-dlp's own default client selection first (it tracks which YouTube clients
-      // currently work far better than a hardcoded list we'd have to keep updating by hand -
-      // pinning a specific player_client is a common mistake that backfires whenever YouTube
-      // changes what's supported). --js-runtimes node lets it solve YouTube's JS challenges
-      // using the Node binary already available in this environment, which is required for full
-      // format availability on current YouTube. If that fails, retry once explicitly excluding
-      // the android_sdkless client, which is presently unreliable and commonly causes YouTube to
-      // return 403s on an otherwise-working IP.
-      const attempts = [
-        ['-g', '-f', 'bestaudio[ext=m4a]/140/251/bestaudio', '--js-runtimes', 'node', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
-        ['-g', '-f', 'bestaudio[ext=m4a]/140/251/bestaudio', '--js-runtimes', 'node', '--extractor-args', 'youtube:player_client=default,-android_sdkless', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
-      ];
-
-      for (const args of attempts) {
-        if (streamUrl) break;
-        try {
-          const extractedUrl = await new Promise<string>((resolve, reject) => {
-            execFile(
-              ytdlpPath,
-              args,
-              { timeout: 10000 },
-              (err, stdout) => {
-                if (err) return reject(err);
-                const lines = stdout.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
-                const url = lines[0];
-                if (url && url.startsWith('http')) {
-                  resolve(url);
-                } else {
-                  reject(new Error('No stream URL in output'));
-                }
+      try {
+        const extractedUrl = await new Promise<string>((resolve, reject) => {
+          execFile(
+            ytdlpPath,
+            ['-g', '-f', 'bestaudio[ext=m4a]/140/251/bestaudio', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
+            { timeout: 8000 },
+            (err, stdout) => {
+              if (err) return reject(err);
+              const lines = stdout.trim().split('\n').map(l => l.trim()).filter(l => l.startsWith('http'));
+              const url = lines[0];
+              if (url && url.startsWith('http')) {
+                resolve(url);
+              } else {
+                reject(new Error('No stream URL in output'));
               }
-            );
-          });
+            }
+          );
+        });
 
-          if (extractedUrl) {
-            streamUrl = extractedUrl;
-            streamUrlCache.set(id, { url: extractedUrl, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
-          }
-        } catch (e: any) {
-          // Silently catch yt-dlp failures as YouTube blocks datacenter IPs
+        if (extractedUrl) {
+          streamUrl = extractedUrl;
+          streamUrlCache.set(id, { url: extractedUrl, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
         }
+      } catch (e: any) {
+        // Silently catch yt-dlp failures as YouTube blocks datacenter IPs
       }
     }
 
