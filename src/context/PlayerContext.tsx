@@ -53,6 +53,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const isPlayingRef = useRef<boolean>(false);
   const userInitiatedPauseRef = useRef<boolean>(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const silentPingRef = useRef<{ osc: OscillatorNode; gain: GainNode } | null>(null);
   const prewarmedTrackIdRef = useRef<string | null>(null);
   const activeEngineRef = useRef<'youtube' | 'audio'>('audio');
   const hlsRef = useRef<Hls | null>(null);
@@ -101,6 +102,24 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
         }
         if (audioContextRef.current.state === 'suspended') {
           audioContextRef.current.resume().catch(() => {});
+        }
+        // Keep a genuinely-running (inaudible) node connected to the output at all times,
+        // separate from the actual song playback. An idle AudioContext with nothing scheduled
+        // through it can still be suspended/frozen by iOS after the app backgrounds for a while;
+        // a continuously producing node gives iOS an ongoing reason to consider the audio
+        // session active, similar to how native apps hold a silent AVAudioEngine loop open.
+        // This is a mitigation, not a guarantee - iOS has long-standing, still-unresolved bugs
+        // (reported by developers across iOS 13 through current betas) where it freezes the
+        // whole web audio pipeline in the background regardless.
+        if (!silentPingRef.current) {
+          const osc = audioContextRef.current.createOscillator();
+          const gain = audioContextRef.current.createGain();
+          gain.gain.value = 0.00001;
+          osc.frequency.value = 20;
+          osc.connect(gain);
+          gain.connect(audioContextRef.current.destination);
+          osc.start();
+          silentPingRef.current = { osc, gain };
         }
       }
     } catch (e) {}
