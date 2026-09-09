@@ -436,6 +436,19 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
+    // If this exact video's extraction failed (a specific upload can be blocked/restricted/
+    // pulled even when the song itself is fine), try an alternate matching video via the SAME
+    // background-friendly native engine before downgrading to anything worse. This is the real
+    // reason some songs are more prone to falling back than others regardless of "where" they
+    // were played from: it's per-video extraction reliability, not the source page.
+    if (song.backupYoutubeIds && song.backupYoutubeIds.length > 0) {
+      const nextId = song.backupYoutubeIds.shift();
+      if (nextId) {
+        loadAndPlayStream(`/api/stream/youtube/${nextId}`);
+        return;
+      }
+    }
+
     // Before giving up to the YouTube iframe engine (which cannot survive backgrounding at
     // all - see startPlayback), try one more background-friendly source. yt-dlp/ytdl-core
     // extraction can fail for a specific video (blocked from a datacenter IP, age-gated, etc.)
