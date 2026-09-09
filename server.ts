@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import { execFile, execFileSync } from 'child_process';
-import https from 'https';
 import ytSearch from 'yt-search';
 import ytdl from '@distube/ytdl-core';
 import { createServer as createViteServer } from 'vite';
@@ -284,7 +283,7 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
         const extractedUrl = await new Promise<string>((resolve, reject) => {
           execFile(
             ytdlpPath,
-            ['-g', '-f', '251/bestaudio', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
+            ['-g', '-f', 'bestaudio[ext=m4a]/140/251/bestaudio', '--no-warnings', '--no-playlist', `https://www.youtube.com/watch?v=${id}`],
             { timeout: 8000 },
             (err, stdout) => {
               if (err) return reject(err);
@@ -313,12 +312,14 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       try {
         const info = await ytdl.getInfo(id);
         const audioFormats = ytdl.filterFormats(info.formats, 'audioonly');
-        const format = ytdl.chooseFormat(audioFormats, { quality: 'highestaudio' });
-        if (format) {
-          res.setHeader('Content-Type', 'audio/mp4');
-          res.setHeader('Accept-Ranges', 'bytes');
-          res.setHeader('Cache-Control', 'public, max-age=86400');
-          return ytdl(id, { format }).pipe(res);
+        // Prefer m4a/AAC specifically: iOS Safari cannot decode WebM/Opus at all, which
+        // 'highestaudio' alone could pick since it ignores container.
+        const m4aFormats = audioFormats.filter(f => f.container === 'mp4' || f.codecs?.includes('mp4a'));
+        const format = ytdl.chooseFormat(m4aFormats.length > 0 ? m4aFormats : audioFormats, { quality: 'highestaudio' });
+        if (format?.url) {
+          streamUrlCache.set(id, { url: format.url, expiresAt: Date.now() + 4 * 60 * 60 * 1000 });
+          res.setHeader('Cache-Control', 'private, max-age=0');
+          return res.redirect(302, format.url);
         }
       } catch (e) {
         // Fallback failed
@@ -326,57 +327,17 @@ app.get('/api/stream/youtube/:id', async (req, res) => {
       return res.status(404).send('Stream unavailable, use client playback');
     }
 
-    // 4. Proxy direct audio stream with full Range header support
-    const targetUrl = new URL(streamUrl);
-    const rangeHeader = req.headers.range;
-    const requestHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'
-    };
-    if (rangeHeader) {
-      requestHeaders['Range'] = rangeHeader;
-    }
-
-    const method = req.method === 'HEAD' ? 'HEAD' : 'GET';
-    const proxyReq = https.request(
-      {
-        hostname: targetUrl.hostname,
-        path: targetUrl.pathname + targetUrl.search,
-        method: method,
-        headers: requestHeaders
-      },
-      proxyRes => {
-        const status = proxyRes.statusCode || 200;
-        res.status(status);
-        const upstreamContentType = proxyRes.headers['content-type'];
-        const contentType = upstreamContentType && !upstreamContentType.includes('text') && !upstreamContentType.includes('html')
-          ? (upstreamContentType.includes('mp4') || upstreamContentType.includes('m4a') ? 'audio/mp4' : upstreamContentType)
-          : 'audio/mp4';
-        res.setHeader('Content-Type', contentType);
-        if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
-        if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Cache-Control', 'public, max-age=14400');
-
-        if (req.method === 'HEAD') {
-          res.end();
-          proxyRes.destroy();
-          return;
-        }
-
-        proxyRes.pipe(res);
-      }
-    );
-
-    proxyReq.on('error', (err) => {
-      // Log proxy disconnects quietly (happens frequently during track scrubbing)
-      if (!res.headersSent) res.status(502).send('Upstream stream error');
-    });
-
-    proxyReq.end();
-
-    req.on('close', () => {
-      proxyReq.destroy();
-    });
+    // 4. Redirect directly to the resolved CDN URL instead of proxying bytes through our own
+    // server. Piping the full response through a serverless function ties playback to THIS
+    // platform's max execution duration for the entire proxy connection's lifetime - fine for
+    // short foreground bursts, but while backgrounded/locked, iOS throttles how often the
+    // <audio> element issues fresh Range requests, so each proxy invocation has to stay open
+    // much longer and is far more likely to get killed by the platform's execution time limit
+    // mid-song. A redirect makes our function's job "resolve, then hand off" (fast, well under
+    // any timeout) and lets the client stream directly from Google's CDN, which has no such
+    // constraint and is built for exactly this kind of long-lived mobile media streaming.
+    res.setHeader('Cache-Control', 'private, max-age=0');
+    return res.redirect(302, streamUrl);
   } catch (error: any) {
     if (!res.headersSent) {
       res.status(500).send('Streaming failed');
