@@ -436,6 +436,29 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
       }
     }
 
+    // Before giving up to the YouTube iframe engine (which cannot survive backgrounding at
+    // all - see startPlayback), try one more background-friendly source. yt-dlp/ytdl-core
+    // extraction can fail for a specific video (blocked from a datacenter IP, age-gated, etc.)
+    // while still being playable via SoundCloud/Audius - which also plays through the native
+    // audio engine, so the song stays background-capable instead of silently downgrading.
+    // This is exactly why "some songs work in the background and others don't": the ones that
+    // don't are the ones whose extraction failed and fell straight to the iframe fallback below.
+    if (song.title && song.artist) {
+      resolveFullLengthStream(song.title, song.artist, true).then(resolved => {
+        if (currentSongRef.current?.id !== song.id) return; // song changed while resolving
+        if (resolved?.audioUrl && !resolved.audioUrl.startsWith('/api/stream/youtube')) {
+          loadAndPlayStream(resolved.audioUrl);
+          return;
+        }
+        fallBackToIframe(song);
+      }).catch(() => fallBackToIframe(song));
+      return;
+    }
+
+    fallBackToIframe(song);
+  };
+
+  const fallBackToIframe = (song: Song) => {
     if (song.youtubeId) {
       setActiveEngine('youtube');
       activeEngineRef.current = 'youtube';
