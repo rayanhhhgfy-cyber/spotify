@@ -533,22 +533,15 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     let targetSong = { ...song };
 
     // 1. If song already has a youtubeId, play that EXACT track directly! Never override or hijack!
+    // IMPORTANT: use the native audio proxy (/api/stream/youtube/:id) via the audio/HLS engine, not
+    // the hidden YouTube iframe player. Iframe-embedded video playback is suspended by iOS/Android the
+    // moment the app is backgrounded or the screen locks, and no amount of JS retry can resume it without
+    // a fresh user gesture — so using it as the primary engine breaks background/lock-screen playback for
+    // virtually every track. The native <audio> element (below) is handled by the OS media pipeline
+    // directly and keeps playing in the background reliably. The iframe player remains available as a
+    // last-resort fallback in handleAudioError() if the proxy stream genuinely fails.
     if (targetSong.youtubeId) {
-      setActiveEngine('youtube');
-      activeEngineRef.current = 'youtube';
-      if (audioRef.current && !audioRef.current.paused) {
-        audioRef.current.pause();
-      }
-      if (ytPlayerRef.current) {
-        try {
-          ytPlayerRef.current.loadVideoById(targetSong.youtubeId);
-          ytPlayerRef.current.playVideo();
-          setIsPlaying(true);
-          isPlayingRef.current = true;
-        } catch (e) {
-          console.warn('YouTube playback error:', e);
-        }
-      }
+      loadAndPlayStream(`/api/stream/youtube/${targetSong.youtubeId}`);
       ensureAudioSessionActive();
       return;
     }
