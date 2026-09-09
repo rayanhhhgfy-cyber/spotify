@@ -48,6 +48,7 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   const playPromiseRef = useRef<Promise<void> | void>();
   const currentSongRef = useRef<Song | null>(null);
   const currentMirrorIndexRef = useRef<number>(0);
+  const playStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatModeRef = useRef<'off' | 'all' | 'one'>('all');
   const isPlayingRef = useRef<boolean>(false);
   const userInitiatedPauseRef = useRef<boolean>(false);
@@ -399,6 +400,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   const handleAudioError = () => {
+    if (playStartTimeoutRef.current) {
+      clearTimeout(playStartTimeoutRef.current);
+      playStartTimeoutRef.current = null;
+    }
     if (!currentSongRef.current) return;
     const song = currentSongRef.current;
     const candidates = song.streamMirrors && song.streamMirrors.length > 0 ? song.streamMirrors : (song.audioUrl ? [song.audioUrl] : []);
@@ -476,6 +481,25 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
     if (ytPlayerRef.current?.pauseVideo) {
       try { ytPlayerRef.current.pauseVideo(); } catch (e) {}
     }
+
+    // Startup watchdog: if the stream endpoint hangs or stalls (slow yt-dlp extraction, dead
+    // upstream, etc.) instead of failing fast with a clean error event, the <audio> element can
+    // sit stuck at currentTime 0 indefinitely with no error ever firing, making the song appear
+    // to "not start" with no fallback ever triggering. Force a fallback attempt if playback
+    // hasn't actually produced audio within 7s.
+    if (playStartTimeoutRef.current) clearTimeout(playStartTimeoutRef.current);
+    const watchedSongId = currentSongRef.current?.id;
+    playStartTimeoutRef.current = setTimeout(() => {
+      if (
+        activeEngineRef.current === 'audio' &&
+        currentSongRef.current?.id === watchedSongId &&
+        audioRef.current &&
+        audioRef.current.currentTime === 0 &&
+        isPlayingRef.current
+      ) {
+        handleAudioError();
+      }
+    }, 7000);
 
     if (url.includes('.m3u8')) {
       if (audioRef.current.canPlayType('application/vnd.apple.mpegurl')) {
@@ -916,6 +940,10 @@ export const PlayerProvider = ({ children }: { children: React.ReactNode }) => {
           if (activeEngine === 'audio') {
             const cur = e.currentTarget.currentTime;
             const dur = e.currentTarget.duration;
+            if (cur > 0 && playStartTimeoutRef.current) {
+              clearTimeout(playStartTimeoutRef.current);
+              playStartTimeoutRef.current = null;
+            }
             if (typeof cur === 'number' && !isNaN(cur)) {
               setProgress(cur);
             }
