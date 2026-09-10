@@ -9,9 +9,13 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "ios:sync": "vite build && npx cap sync ios",
+    "ios:open": "npx cap open ios"
   },
   "dependencies": {
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/ios": "^8.5.1",
     "@distube/ytdl-core": "^4.16.12",
     "@google/genai": "^2.4.0",
     "@saavn-labs/sdk": "^0.1.5",
@@ -39,6 +43,7 @@
     "ytmp3-scrap": "^1.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.1",
     "@types/express": "^4.17.21",
     "@types/lz-string": "^1.5.0",
     "@types/node": "^22.14.0",

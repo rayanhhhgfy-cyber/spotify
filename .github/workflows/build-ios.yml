@@ -1,0 +1,67 @@
+name: Build iOS app (unsigned, for AltStore/SideStore)
+
+# Builds an unsigned .ipa on every push to main and makes it downloadable as a workflow
+# artifact. AltStore/SideStore sign it locally with your free Apple ID when you install it -
+# that's what gets you the real 7-day-refresh sideload instead of a paid Apple Developer
+# account. The app loads the live site (spotify-rayyan.vercel.app) directly, so you generally
+# only need a new build when native settings change (e.g. Info.plist) - ordinary web/app
+# updates show up automatically next time you open the app, no reinstall needed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'capacitor.config.ts'
+      - '.github/workflows/build-ios.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --ignore-scripts
+
+      - name: Build web assets
+        run: npx vite build
+
+      - name: Sync Capacitor iOS project
+        run: npx cap sync ios
+
+      - name: Build unsigned .app
+        working-directory: ios/App
+        run: |
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            archive -archivePath build/App.xcarchive
+
+      - name: Package as .ipa
+        working-directory: ios/App
+        run: |
+          mkdir -p Payload
+          cp -r build/App.xcarchive/Products/Applications/App.app Payload/
+          zip -r Music.ipa Payload
+          # Re-sign with an ad-hoc identity so the .ipa is structurally valid for AltStore/
+          # SideStore to pick up and re-sign properly with your own Apple ID at install time.
+          codesign --force --deep --sign - Payload/App.app || true
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Music-ios-unsigned
+          path: ios/App/Music.ipa
+          retention-days: 30
