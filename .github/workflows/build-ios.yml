@@ -42,8 +42,11 @@ jobs:
       - name: Build web assets
         run: npx vite build
 
-      - name: Sync Capacitor iOS project
-        run: npx cap sync ios
+      - name: Copy web assets into iOS project
+        run: npx cap copy ios
+
+      - name: Update native iOS dependencies
+        run: npx cap update ios
 
       - name: Build unsigned .app
         working-directory: ios/App
