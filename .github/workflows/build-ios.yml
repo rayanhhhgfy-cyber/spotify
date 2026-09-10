@@ -27,7 +27,17 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund --ignore-scripts
+        run: |
+          # --ignore-scripts avoids a known failure in youtube-dl-exec's postinstall (it tries to
+          # download a yt-dlp binary from GitHub and can hit that IP pool's rate limit) - that
+          # package is server-only anyway and irrelevant to building this native wrapper/frontend.
+          # Deleting the lockfile first works around a separate, well-documented npm bug where
+          # platform-specific optional dependencies (like rollup's darwin-arm64 native binary,
+          # needed here since GitHub's macOS runners are Apple Silicon) can fail to resolve
+          # correctly when the lockfile was generated on a different platform - regenerating it
+          # fresh on this runner is the standard fix.
+          rm -f package-lock.json
+          npm install --no-audit --no-fund --ignore-scripts
 
       - name: Build web assets
         run: npx vite build
